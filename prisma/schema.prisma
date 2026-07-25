@@ -1,0 +1,83 @@
+// Degis Tickets — core data model (Phase 1)
+// Grows in later phases: User/OTP (Phase 2), Order/Payment (Phase 3), Ticket (Phase 4)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DATABASE_URL_UNPOOLED")
+}
+
+enum EventCategory {
+  CONCERT
+  FOOTBALL
+  FESTIVAL
+  NIGHTLIFE
+  COMEDY
+  CONFERENCE
+  CULTURAL
+  CHURCH
+  OTHER
+}
+
+enum TierKind {
+  GA
+  VIP
+  VVIP
+  EARLY_BIRD
+  STUDENT
+  TABLE
+}
+
+model Organizer {
+  id        String   @id @default(cuid())
+  slug      String   @unique
+  name      String
+  verified  Boolean  @default(false)
+  events    Event[]
+  createdAt DateTime @default(now())
+}
+
+model Venue {
+  id      String  @id @default(cuid())
+  name    String
+  city    String  @default("Addis Ababa")
+  address String?
+  events  Event[]
+}
+
+model Event {
+  id          String        @id @default(cuid())
+  slug        String        @unique
+  title       String
+  titleAm     String?
+  description String        @default("")
+  category    EventCategory
+  startsAt    DateTime
+  coverImage  String
+  published   Boolean       @default(true)
+  organizer   Organizer     @relation(fields: [organizerId], references: [id])
+  organizerId String
+  venue       Venue         @relation(fields: [venueId], references: [id])
+  venueId     String
+  tiers       TicketTier[]
+  createdAt   DateTime      @default(now())
+
+  @@index([startsAt])
+  @@index([category])
+}
+
+model TicketTier {
+  id        String   @id @default(cuid())
+  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId   String
+  name      String
+  kind      TierKind @default(GA)
+  priceEtb  Int
+  capacity  Int
+  sold      Int      @default(0)
+  sortOrder Int      @default(0)
+}
