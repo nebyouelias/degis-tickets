@@ -1,5 +1,5 @@
-// Degis Tickets — core data model (Phase 1)
-// Grows in later phases: User/OTP (Phase 2), Order/Payment (Phase 3), Ticket (Phase 4)
+// Degis Tickets — core data model (Phase 2: + identity)
+// Grows in later phases: Order/Payment (Phase 3), Ticket (Phase 4)
 
 generator client {
   provider = "prisma-client-js"
@@ -30,6 +30,32 @@ enum TierKind {
   EARLY_BIRD
   STUDENT
   TABLE
+}
+
+enum Role {
+  ATTENDEE
+  ORGANIZER
+  ADMIN
+}
+
+model User {
+  id        String   @id @default(cuid())
+  phone     String   @unique // E.164, e.g. +2519XXXXXXXX
+  name      String?
+  role      Role     @default(ATTENDEE)
+  createdAt DateTime @default(now())
+}
+
+model OtpCode {
+  id         String    @id @default(cuid())
+  phone      String
+  codeHash   String
+  expiresAt  DateTime
+  attempts   Int       @default(0)
+  consumedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([phone, createdAt])
 }
 
 model Organizer {
