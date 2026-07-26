@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 import { chapaVerify } from "@/lib/chapa";
 import { markOrderPaid } from "@/lib/inventory";
+import { issueTicketsForOrder } from "@/lib/issue-tickets";
 import { formatEtb, formatEventDateTime } from "@/lib/format";
 import { maskPhone } from "@/lib/phone";
 
@@ -22,6 +23,7 @@ export default async function OrderPage({
     include: {
       event: { include: { venue: true } },
       items: { include: { tier: true } },
+      tickets: { select: { id: true } },
     },
   });
   if (!order || order.userId !== user.id) notFound();
@@ -40,12 +42,18 @@ export default async function OrderPage({
     }
   }
 
+  // Ensure tickets exist for paid orders (idempotent)
+  let ticketCount = order.tickets.length;
+  if (order.status === "PAID") {
+    ticketCount = await issueTicketsForOrder(order.id);
+  }
+
   const statusView = {
     PAID: {
       badge: "Paid",
       badgeClass: "border-gold/40 bg-gold-faint text-gold",
       title: "You're going! 🎉",
-      body: "Payment confirmed. Your QR tickets arrive here and by SMS in Phase 4 — for now this order is your proof of purchase.",
+      body: `Payment confirmed. ${ticketCount} ticket${ticketCount === 1 ? "" : "s"} issued and waiting in your wallet.`,
     },
     PENDING: {
       badge: "Awaiting payment",
@@ -82,6 +90,15 @@ export default async function OrderPage({
       </span>
       <h1 className="mt-3 text-3xl font-extrabold">{statusView.title}</h1>
       <p className="mt-2 text-ink-300">{statusView.body}</p>
+
+      {order.status === "PAID" && (
+        <Link
+          href="/tickets"
+          className="mt-5 inline-block rounded-full bg-crimson px-6 py-3 text-sm font-semibold transition-colors hover:bg-crimson-hover"
+        >
+          View my tickets →
+        </Link>
+      )}
 
       <div className="mt-8 rounded-card border border-ink-700 bg-ink-900 p-6 shadow-card">
         <p className="text-xs font-medium uppercase tracking-luxe text-ink-500">

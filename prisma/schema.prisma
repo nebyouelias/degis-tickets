@@ -1,5 +1,4 @@
-// Degis Tickets — core data model (Phase 3: + orders & payments)
-// Phase 4 adds: Ticket (QR codes, wallet)
+// Degis Tickets — core data model (Phase 4: + issued tickets)
 
 generator client {
   provider = "prisma-client-js"
@@ -46,10 +45,16 @@ enum OrderStatus {
   REFUNDED
 }
 
+enum TicketStatus {
+  VALID
+  CHECKED_IN
+  VOID
+}
+
 model User {
   id        String   @id @default(cuid())
-  phone     String?  @unique // E.164; set via OTP sign-in or added later
-  email     String?  @unique // set via Google sign-in
+  phone     String?  @unique
+  email     String?  @unique
   name      String?
   role      Role     @default(ATTENDEE)
   orders    Order[]
@@ -101,6 +106,7 @@ model Event {
   venueId     String
   tiers       TicketTier[]
   orders      Order[]
+  tickets     Ticket[]
   createdAt   DateTime      @default(now())
 
   @@index([startsAt])
@@ -118,6 +124,7 @@ model TicketTier {
   sold      Int         @default(0)
   sortOrder Int         @default(0)
   items     OrderItem[]
+  tickets   Ticket[]
 }
 
 model Order {
@@ -130,11 +137,12 @@ model Order {
   subtotalEtb   Int
   serviceFeeEtb Int
   totalEtb      Int
-  deliveryPhone String // E.164 — where tickets are sent
+  deliveryPhone String
   chapaTxRef    String      @unique
   paidAt        DateTime?
-  expiresAt     DateTime // pending orders release inventory after this
+  expiresAt     DateTime
   items         OrderItem[]
+  tickets       Ticket[]
   createdAt     DateTime    @default(now())
 
   @@index([status, expiresAt])
@@ -148,5 +156,23 @@ model OrderItem {
   tier         TicketTier @relation(fields: [tierId], references: [id])
   tierId       String
   quantity     Int
-  unitPriceEtb Int // snapshot of price at purchase time
+  unitPriceEtb Int
+}
+
+model Ticket {
+  id          String       @id @default(cuid())
+  code        String       @unique // short human-readable code, e.g. DGS-7K4M2Q
+  seq         Int // position within the order — makes issuance idempotent
+  order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId     String
+  tier        TicketTier   @relation(fields: [tierId], references: [id])
+  tierId      String
+  event       Event        @relation(fields: [eventId], references: [id])
+  eventId     String
+  status      TicketStatus @default(VALID)
+  checkedInAt DateTime?
+  createdAt   DateTime     @default(now())
+
+  @@unique([orderId, seq])
+  @@index([eventId, status])
 }

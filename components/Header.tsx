@@ -29,6 +29,11 @@ export async function Header() {
           <Link href="/?q=nightlife" className="transition-colors hover:text-ink-100">
             Nightlife
           </Link>
+          {user && (
+            <Link href="/tickets" className="transition-colors hover:text-ink-100">
+              My tickets
+            </Link>
+          )}
         </nav>
 
         {user ? (

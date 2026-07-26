@@ -3,6 +3,7 @@ import { createHmac, timingSafeEqual } from "crypto";
 import { db } from "@/lib/db";
 import { chapaVerify } from "@/lib/chapa";
 import { markOrderPaid } from "@/lib/inventory";
+import { issueTicketsForOrder } from "@/lib/issue-tickets";
 
 export const dynamic = "force-dynamic";
 
@@ -39,14 +40,17 @@ export async function POST(request: Request) {
   const order = await db.order.findUnique({
     where: { chapaTxRef: payload.tx_ref },
   });
-  if (!order || order.status !== "PENDING") {
-    return NextResponse.json({ ok: true }); // unknown or already handled
-  }
+  if (!order) return NextResponse.json({ ok: true });
 
-  const verification = await chapaVerify(payload.tx_ref);
-  if (verification.paid && verification.amountEtb >= order.totalEtb) {
-    await markOrderPaid(order.id);
-    // Phase 4: generate tickets + send SMS here
+  if (order.status === "PENDING") {
+    const verification = await chapaVerify(payload.tx_ref);
+    if (verification.paid && verification.amountEtb >= order.totalEtb) {
+      await markOrderPaid(order.id);
+      await issueTicketsForOrder(order.id);
+      // Phase 5: send ticket links by SMS / Telegram here
+    }
+  } else if (order.status === "PAID") {
+    await issueTicketsForOrder(order.id); // safety net, idempotent
   }
 
   return NextResponse.json({ ok: true });
