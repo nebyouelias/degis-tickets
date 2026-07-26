@@ -31,7 +31,7 @@ export async function chapaInitialize(params: {
       currency: "ETB",
       tx_ref: params.txRef,
       return_url: params.returnUrl,
-      email: params.email ?? "guest@degistickets.com",
+      email: params.email ?? "degis.tickets.guest@gmail.com",
       first_name: params.firstName ?? "Degis",
       last_name: "Customer",
       phone_number: params.phone?.replace("+251", "0"),
