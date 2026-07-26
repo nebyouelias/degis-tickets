@@ -2,42 +2,43 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { db } from "@/lib/db";
-import {
-  categoryLabels,
-  formatEtb,
-  formatEventDateTime,
-} from "@/lib/format";
+import { getCurrentUser } from "@/lib/auth";
+import { releaseExpiredOrders } from "@/lib/inventory";
+import { categoryLabels, formatEventDateTime } from "@/lib/format";
+import { TicketSelector } from "@/components/TicketSelector";
 
 export const dynamic = "force-dynamic";
-
-const tierBadge: Record<string, string> = {
-  VIP: "text-gold border-gold/40 bg-gold-faint",
-  VVIP: "text-gold border-gold/60 bg-gold-faint",
-  TABLE: "text-gold border-gold/40 bg-gold-faint",
-};
 
 export default async function EventPage({
   params,
 }: {
   params: { slug: string };
 }) {
-  const event = await db.event.findUnique({
-    where: { slug: params.slug },
-    include: {
-      venue: true,
-      organizer: true,
-      tiers: { orderBy: [{ sortOrder: "asc" }, { priceEtb: "asc" }] },
-    },
-  });
+  const [user, event] = await Promise.all([
+    getCurrentUser(),
+    db.event.findUnique({
+      where: { slug: params.slug },
+      include: {
+        venue: true,
+        organizer: true,
+        tiers: { orderBy: [{ sortOrder: "asc" }, { priceEtb: "asc" }] },
+      },
+    }),
+  ]);
 
   if (!event || !event.published) notFound();
 
-  const soldOut =
-    event.tiers.length > 0 && event.tiers.every((t) => t.sold >= t.capacity);
+  // Free stale holds so availability shown is accurate
+  await releaseExpiredOrders(event.id);
+  const tiers = await db.ticketTier.findMany({
+    where: { eventId: event.id },
+    orderBy: [{ sortOrder: "asc" }, { priceEtb: "asc" }],
+  });
+
+  const soldOut = tiers.length > 0 && tiers.every((t) => t.sold >= t.capacity);
 
   return (
     <article className="mx-auto max-w-6xl px-5 pb-24 pt-8">
-      {/* Cover */}
       <div className="relative aspect-[16/7] overflow-hidden rounded-card border border-ink-700">
         <Image
           src={event.coverImage}
@@ -70,8 +71,7 @@ export default async function EventPage({
         </div>
       </div>
 
-      <div className="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-[1fr_380px]">
-        {/* Details */}
+      <div className="mt-10 grid grid-cols-1 gap-10 lg:grid-cols-[1fr_400px]">
         <div>
           <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="rounded-card border border-ink-700 bg-ink-900 p-5">
@@ -120,57 +120,20 @@ export default async function EventPage({
           )}
         </div>
 
-        {/* Tickets */}
         <aside className="h-fit rounded-card border border-ink-700 bg-ink-900 p-5 lg:sticky lg:top-24">
           <h2 className="text-lg font-bold">Tickets</h2>
-          <ul className="mt-4 space-y-3">
-            {event.tiers.map((tier) => {
-              const remaining = tier.capacity - tier.sold;
-              const tierSoldOut = remaining <= 0;
-              const goldTier = tierBadge[tier.kind];
-              return (
-                <li
-                  key={tier.id}
-                  className={`flex items-center justify-between rounded-xl border p-4 ${
-                    goldTier
-                      ? "border-gold/25 bg-gold-faint/40"
-                      : "border-ink-700 bg-ink-800"
-                  } ${tierSoldOut ? "opacity-50" : ""}`}
-                >
-                  <div>
-                    <p className="flex items-center gap-2 font-semibold">
-                      {tier.name}
-                      {goldTier && (
-                        <span
-                          className={`rounded-full border px-2 py-0.5 text-[10px] font-bold tracking-wide ${goldTier}`}
-                        >
-                          {tier.kind}
-                        </span>
-                      )}
-                    </p>
-                    <p className="mt-0.5 text-sm text-ink-300">
-                      {tierSoldOut
-                        ? "Sold out"
-                        : remaining <= 20
-                          ? `Only ${remaining} left`
-                          : "Available"}
-                    </p>
-                  </div>
-                  <p className="font-bold">{formatEtb(tier.priceEtb)} ETB</p>
-                </li>
-              );
-            })}
-          </ul>
-          <button
-            type="button"
-            disabled
-            className="mt-5 w-full cursor-not-allowed rounded-full bg-crimson/50 py-3 text-sm font-semibold"
-          >
-            {soldOut ? "Sold out" : "Checkout opens soon"}
-          </button>
-          <p className="mt-2 text-center text-xs text-ink-500">
-            Telebirr, CBE Birr &amp; cards — arriving in Phase 3
-          </p>
+          <TicketSelector
+            eventId={event.id}
+            signedIn={Boolean(user)}
+            needsPhone={Boolean(user && !user.phone)}
+            tiers={tiers.map((t) => ({
+              id: t.id,
+              name: t.name,
+              kind: t.kind,
+              priceEtb: t.priceEtb,
+              remaining: Math.max(t.capacity - t.sold, 0),
+            }))}
+          />
         </aside>
       </div>
 

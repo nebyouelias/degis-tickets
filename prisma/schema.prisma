@@ -1,5 +1,5 @@
-// Degis Tickets — core data model (Phase 2: + identity)
-// Grows in later phases: Order/Payment (Phase 3), Ticket (Phase 4)
+// Degis Tickets — core data model (Phase 3: + orders & payments)
+// Phase 4 adds: Ticket (QR codes, wallet)
 
 generator client {
   provider = "prisma-client-js"
@@ -38,11 +38,21 @@ enum Role {
   ADMIN
 }
 
+enum OrderStatus {
+  PENDING
+  PAID
+  EXPIRED
+  CANCELLED
+  REFUNDED
+}
+
 model User {
   id        String   @id @default(cuid())
-  phone     String   @unique // E.164, e.g. +2519XXXXXXXX
+  phone     String?  @unique // E.164; set via OTP sign-in or added later
+  email     String?  @unique // set via Google sign-in
   name      String?
   role      Role     @default(ATTENDEE)
+  orders    Order[]
   createdAt DateTime @default(now())
 }
 
@@ -90,6 +100,7 @@ model Event {
   venue       Venue         @relation(fields: [venueId], references: [id])
   venueId     String
   tiers       TicketTier[]
+  orders      Order[]
   createdAt   DateTime      @default(now())
 
   @@index([startsAt])
@@ -97,13 +108,45 @@ model Event {
 }
 
 model TicketTier {
-  id        String   @id @default(cuid())
-  event     Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  id        String      @id @default(cuid())
+  event     Event       @relation(fields: [eventId], references: [id], onDelete: Cascade)
   eventId   String
   name      String
-  kind      TierKind @default(GA)
+  kind      TierKind    @default(GA)
   priceEtb  Int
   capacity  Int
-  sold      Int      @default(0)
-  sortOrder Int      @default(0)
+  sold      Int         @default(0)
+  sortOrder Int         @default(0)
+  items     OrderItem[]
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  user          User        @relation(fields: [userId], references: [id])
+  userId        String
+  event         Event       @relation(fields: [eventId], references: [id])
+  eventId       String
+  status        OrderStatus @default(PENDING)
+  subtotalEtb   Int
+  serviceFeeEtb Int
+  totalEtb      Int
+  deliveryPhone String // E.164 — where tickets are sent
+  chapaTxRef    String      @unique
+  paidAt        DateTime?
+  expiresAt     DateTime // pending orders release inventory after this
+  items         OrderItem[]
+  createdAt     DateTime    @default(now())
+
+  @@index([status, expiresAt])
+  @@index([userId, createdAt])
+}
+
+model OrderItem {
+  id           String     @id @default(cuid())
+  order        Order      @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderId      String
+  tier         TicketTier @relation(fields: [tierId], references: [id])
+  tierId       String
+  quantity     Int
+  unitPriceEtb Int // snapshot of price at purchase time
 }
