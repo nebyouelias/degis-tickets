@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { ImageUpload } from "@/components/organizer/ImageUpload";
 
 const CATEGORIES = [
   ["CONCERT", "Concert"],
@@ -177,19 +178,13 @@ export function EventForm() {
         </div>
 
         <div className="mt-4">
-          <label htmlFor="coverImage" className={labelCls}>
-            Cover image URL
-          </label>
-          <input
-            id="coverImage"
-            className={inputCls}
-            placeholder="https://…"
-            value={form.coverImage}
-            onChange={(e) => set("coverImage", e.target.value)}
-          />
-          <p className="mt-2 text-xs text-ink-500">
-            Paste a link for now — direct image upload arrives with file storage.
-          </p>
+          <label className={labelCls}>Event poster</label>
+          <div className="mt-2">
+            <ImageUpload
+              value={form.coverImage}
+              onChange={(url) => set("coverImage", url)}
+            />
+          </div>
         </div>
       </section>
 

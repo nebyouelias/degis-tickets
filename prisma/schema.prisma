@@ -168,6 +168,8 @@ model Order {
   chapaTxRef    String       @unique
   paidAt        DateTime?
   expiresAt     DateTime
+  paidSmsAt     DateTime?
+  entrySmsAt    DateTime?
   items         OrderItem[]
   tickets       Ticket[]
   createdAt     DateTime     @default(now())

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { chapaVerify } from "@/lib/chapa";
 import { markOrderPaid } from "@/lib/inventory";
 import { issueTicketsForOrder } from "@/lib/issue-tickets";
+import { notifyOrderPaid } from "@/lib/notify";
 
 export const dynamic = "force-dynamic";
 
@@ -47,10 +48,11 @@ export async function POST(request: Request) {
     if (verification.paid && verification.amountEtb >= order.totalEtb) {
       await markOrderPaid(order.id);
       await issueTicketsForOrder(order.id);
-      // Phase 5: send ticket links by SMS / Telegram here
+      await notifyOrderPaid(order.id);
     }
   } else if (order.status === "PAID") {
     await issueTicketsForOrder(order.id); // safety net, idempotent
+    await notifyOrderPaid(order.id); // idempotent too
   }
 
   return NextResponse.json({ ok: true });

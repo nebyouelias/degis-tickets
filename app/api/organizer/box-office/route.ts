@@ -5,6 +5,7 @@ import { normalizePhone } from "@/lib/phone";
 import { boxOfficeFee } from "@/lib/fees";
 import { reserveTiers, SoldOutError } from "@/lib/inventory";
 import { issueTicketsForOrder } from "@/lib/issue-tickets";
+import { notifyBoxOfficeSale } from "@/lib/notify";
 
 export const dynamic = "force-dynamic";
 
@@ -120,6 +121,7 @@ export async function POST(request: Request) {
     });
 
     await issueTicketsForOrder(order.id);
+    await notifyBoxOfficeSale(order.id); // no-op when no customer phone was given
 
     const tickets = await db.ticket.findMany({
       where: { orderId: order.id },

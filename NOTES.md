@@ -1,102 +1,97 @@
-# Phase 6A-2 — Offline door scanner PWA
+# Phase 7 — Image uploads + real SMS
 
-## What door staff do
+## 1. Image uploads (Vercel Blob)
 
-1. Organizer opens the event dashboard → **Door scanners** → types a gate name →
-   **Get code** → a 6-character code appears (valid 30 min, single use)
-2. Door phone opens `/scan`, enters the code, names the device
-3. The device downloads its offline toolkit: event secret, raw Ed25519 public key,
-   full ticket manifest, and a server timestamp for clock correction
-4. From then on it scans with **no internet at all**
+Organizers upload the poster from their phone instead of pasting a URL — this was
+the single biggest blocker to onboarding a real promoter. JPG/PNG/WebP, 5 MB cap,
+organizer-only, stored per organizer.
 
-## What the scanner decides, offline
+**Setup:** Vercel → Storage → Create → **Blob** → connect to the project. That
+injects `BLOB_READ_WRITE_TOKEN`. Redeploy afterwards.
+Until it's connected the uploader returns a clear "not configured yet" message
+rather than failing silently.
 
-| Scan | Result |
+## 2. Real SMS
+
+Provider chosen by which env vars exist — switching gateways is configuration,
+not code:
+
+| Priority | Trigger | Provider |
+|---|---|---|
+| 1 | `OTP_DEV_MODE=true` | dev — logs to console, shows codes on screen |
+| 2 | `AFROMESSAGE_TOKEN` | AfroMessage (Ethiopian, Ethio Telecom routes) |
+| 3 | `SMS_WEBHOOK_URL` | generic POST — for whichever aggregator you sign |
+| 4 | `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` + `TWILIO_FROM` | Twilio (good for testing) |
+
+**Messages sent**
+- **Payment confirmed** → ticket count, event, link to the wallet
+- **Entry codes live** (T-2h) → "open Degis NOW while you have signal"
+- **Box office sale** → ticket codes by text, when a customer phone was given
+
+**Idempotency:** each send is claimed atomically on the order (`paidSmsAt`,
+`entrySmsAt`) before dispatch, so webhook replays, the on-page verify path, and
+overlapping cron runs can never double-text a buyer. A failed send clears the
+claim so a later attempt retries.
+
+**Cost note:** templates are Latin-only on purpose. One Amharic character forces
+the whole SMS to UCS-2 — 70 characters per segment instead of 160, roughly 2.3x
+the cost at volume. Amharic belongs in the app UI, not the SMS bill.
+
+## 3. Entry-ready cron
+
+`vercel.json` schedules `/api/cron/entry-ready` hourly.
+
+⚠️ **Vercel Hobby only runs cron once per day.** Options:
+- Upgrade to Pro for hourly, or
+- Use a free external cron (cron-job.org) hitting
+  `https://YOUR-DOMAIN/api/cron/entry-ready?key=YOUR_CRON_SECRET` hourly
+
+Set `CRON_SECRET` either way — the route rejects unauthenticated calls when it's set.
+
+## New environment variables
+
+| Variable | Purpose |
 |---|---|
-| Live app ticket | **ADMIT** (green) |
-| Screenshot / stale code | EXPIRED CODE — "ask for the live code" |
-| Already scanned, any gate | ALREADY USED — with the time it was admitted |
-| Valid ticket for another event | WRONG EVENT |
-| Forged or non-Degis QR | NOT VALID |
-| Voided ticket | VOIDED |
-| Paper box-office ticket (static `DGS1`) | **ADMIT** |
-| Valid signature, not yet in manifest | **ADMIT** (issued after last sync) |
+| `BLOB_READ_WRITE_TOKEN` | auto-added by Vercel Blob |
+| `CRON_SECRET` | protects the entry-ready cron |
+| `NEXT_PUBLIC_SITE_URL` | your real domain, used in SMS links |
+| `AFROMESSAGE_TOKEN` / `AFROMESSAGE_SENDER` / `AFROMESSAGE_IDENTIFIER` | Ethiopian SMS |
+| `SMS_WEBHOOK_URL` / `SMS_WEBHOOK_TOKEN` | generic aggregator |
+| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM` | Twilio |
 
-Green/red full-screen result, tier name, ticket code, and the holder's masked
-phone in large type — so staff can ask for the last three digits.
+Turn **off** `OTP_DEV_MODE` once a real provider is configured, or nothing sends.
 
-## Verified (15/15 tests against the real verify module)
+## Verified
 
-Ran `components/scanner/verify.ts` in Node against server-generated payloads:
-screenshots from 10 minutes and 24 hours ago both rejected; duplicates, wrong
-event, forged signatures, random QR codes, empty input, and a code borrowed from
-another ticket all rejected; paper tickets and post-sync tickets admitted;
-±45s device clock drift still admits.
-
-Also verified separately:
-- `@noble/ed25519` v3 verifies Node-generated signatures (2.15 ms per scan)
-- WebCrypto HKDF + HMAC produce **byte-identical** output to Node's, so the
-  browser derives exactly the same rotating codes as the server
-
-## Fleet design (built for 50+ devices)
-
-- Tokens are **per event and per gate**, stored hashed, revocable individually
-- Every scan is stamped with device and gate
-- Sync every 10s when there's any signal: pushes queued scans, pulls other gates'
-  check-ins — so the cross-gate blind spot is seconds, not hours
-- Sync is idempotent on a client-generated scan id: a device can retry the same
-  batch after a dropped connection without double-recording
-- Organizer panel shows per-gate device counts, scan counts, last-seen times,
-  and a revoke button per device
-
-## Dispute resolution
-
-On a DUPLICATE the scanner shows **"Override — holder has a live code"**. Ask both
-people to show their ticket refreshing: only the real holder's code moves. The
-override is recorded as `OVERRIDE_ADMITTED` with device, gate, and timestamp, so
-the incident is auditable afterwards.
-
-## Fallbacks (nothing locks out a paying customer)
-
-- **Manual entry**: type `DGS-XXXXXX` and check against the offline manifest —
-  works with a dead customer phone
-- **Bad device clock**: rotating check fails → the ticket still admits on
-  signature + single-use, flagged in the record
-- **Camera unavailable**: manual entry stays available
-- **Service worker**: `/scan` opens with zero connectivity after first load
+- Full production build: **compiled successfully**
+- Type check clean on all new/changed files
+- 5/5 SMS provider-selection tests: no-provider handled without throwing, dev
+  mode takes priority, `OTP_DEV_MODE="TRUE"` still recognised (the Phase 2 bug
+  can't come back), OTP wrapper throws only when genuinely unconfigured
 
 ## Files
 
 | Path | |
 |---|---|
-| `prisma/schema.prisma` | replaces — adds ScannerDevice, PairingCode, ScanRecord, ScanResult |
-| `package.json` | replaces — adds `@noble/ed25519`, `jsqr` |
-| `lib/ticket-crypto.ts` | replaces — adds `ticketPublicKeyRaw()` |
-| `lib/scanner.ts` | new — pairing, manifest, device auth |
-| `app/api/organizer/scanner/route.ts` | new — mint pairing codes, revoke devices |
-| `app/api/scan/pair/route.ts` | new — redeem a code, hand over the offline toolkit |
-| `app/api/scan/sync/route.ts` | new — idempotent push + cross-gate pull |
-| `app/scan/page.tsx` | new — the scanner PWA |
-| `components/scanner/store.ts` | new — IndexedDB (manifest, queue, cursor) |
-| `components/scanner/verify.ts` | new — offline verification |
-| `components/scanner/ScannerApp.tsx` | new — camera, results, sync, override |
-| `components/scanner/RegisterServiceWorker.tsx` | new |
-| `components/organizer/ScannerPanel.tsx` | new — fleet management |
-| `app/organizer/events/[id]/page.tsx` | replaces — wires the panel in |
-| `public/manifest.webmanifest`, `public/sw.js` | new — installable PWA |
+| `prisma/schema.prisma` | replaces — adds `paidSmsAt`, `entrySmsAt` to Order |
+| `package.json` | replaces — adds `@vercel/blob` |
+| `next.config.mjs` | replaces — allows blob image hostnames |
+| `vercel.json` | new — hourly cron |
+| `lib/sms.ts` | replaces — multi-provider |
+| `lib/notify.ts` | new — templates + idempotent sends |
+| `app/api/upload/route.ts` | new |
+| `app/api/cron/entry-ready/route.ts` | new |
+| `app/api/webhooks/chapa/route.ts` | replaces — texts on payment |
+| `app/api/organizer/box-office/route.ts` | replaces — texts walk-up buyers |
+| `components/organizer/ImageUpload.tsx` | new |
+| `components/organizer/EventForm.tsx` | replaces — uses the uploader |
 
-## The acceptance test
+## Still open
 
-1. Create an event starting ~1 hour out, buy 3 tickets, pair a phone to "Gate 1"
-2. **Airplane mode on the scanner phone**
-3. Scan ticket 1 → ADMIT. Scan it again → ALREADY USED
-4. Screenshot ticket 2's code, wait 2 minutes, scan the screenshot → EXPIRED CODE.
-   Then scan the live code → ADMIT
-5. Scan a ticket from a different event → WRONG EVENT
-6. Turn connectivity back on → the queue drains and the organizer dashboard
-   check-in count matches exactly what you admitted
-
-## Note on HTTPS
-
-Camera access needs a secure context. Vercel is HTTPS, so `/scan` works on real
-devices; `localhost` also counts as secure if you ever run it locally.
+- **Apple/Google Wallet** — needs an Apple Developer membership ($99/yr) plus a
+  Pass Type ID certificate, and a Google Wallet issuer account. Note the design
+  constraint: wallet passes show a *static* barcode and can't rotate every 30s,
+  so the pass should carry event info + `DGS-XXXXXX` + a link back to the app,
+  with entry staying in Degis.
+- **Ticket transfer** — removes the reason to share screenshots at all.
+- **`prisma migrate`** — replace `db push --accept-data-loss` before real orders exist.
