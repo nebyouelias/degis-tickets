@@ -1,0 +1,14 @@
+{
+  "name": "Degis Scanner",
+  "short_name": "Degis Scan",
+  "description": "Offline door scanner for Degis Tickets",
+  "start_url": "/scan",
+  "scope": "/scan",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B0B0D",
+  "theme_color": "#0B0B0D",
+  "icons": [
+    { "src": "/icon.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

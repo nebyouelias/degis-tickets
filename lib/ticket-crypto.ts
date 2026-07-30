@@ -75,11 +75,21 @@ function keypair() {
   return cachedKeys;
 }
 
-/** Public key (base64url SPKI) — safe to hand to any scanner device. */
+/** Public key as SPKI DER (base64url). */
 export function ticketPublicKey(): string {
   return keypair()
     .publicKey.export({ format: "der", type: "spki" })
     .toString("base64url");
+}
+
+/**
+ * Public key as the RAW 32 bytes (base64url) — what browser Ed25519 libraries
+ * expect. SPKI wraps the key in a 12-byte header; the key is the tail.
+ * Safe to hand to any scanner device: it verifies, it can never sign.
+ */
+export function ticketPublicKeyRaw(): string {
+  const spki = keypair().publicKey.export({ format: "der", type: "spki" });
+  return Buffer.from(spki.subarray(spki.length - 32)).toString("base64url");
 }
 
 // ---------- key hierarchy ----------

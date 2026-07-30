@@ -1,80 +1,102 @@
-# Phase 6A-1 — Two-state tickets with rotating entry codes
+# Phase 6A-2 — Offline door scanner PWA
 
-## What this adds
+## What door staff do
 
-**State 1 — Ticket pass** (purchase → 2 hours before doors)
-A dimmed, deliberately non-barcode-looking QR that links to a PUBLIC verification
-page, labelled "Not an entry code". Anyone offered a ticket on Telegram can scan
-it and see whose ticket it is before paying.
+1. Organizer opens the event dashboard → **Door scanners** → types a gate name →
+   **Get code** → a 6-character code appears (valid 30 min, single use)
+2. Door phone opens `/scan`, enters the code, names the device
+3. The device downloads its offline toolkit: event secret, raw Ed25519 public key,
+   full ticket manifest, and a server timestamp for clock correction
+4. From then on it scans with **no internet at all**
 
-**State 2 — Entry code** (2 hours before doors → end of event)
-Ed25519 signature plus a rotating 8-character code that changes every 30 seconds,
-with a live countdown bar. Generated on the holder's device, offline.
+## What the scanner decides, offline
 
-## Why late activation matters more than rotation
+| Scan | Result |
+|---|---|
+| Live app ticket | **ADMIT** (green) |
+| Screenshot / stale code | EXPIRED CODE — "ask for the live code" |
+| Already scanned, any gate | ALREADY USED — with the time it was admitted |
+| Valid ticket for another event | WRONG EVENT |
+| Forged or non-Degis QR | NOT VALID |
+| Voided ticket | VOIDED |
+| Paper box-office ticket (static `DGS1`) | **ADMIT** |
+| Valid signature, not yet in manifest | **ADMIT** (issued after last sync) |
 
-The seed needed to compute a valid entry code is only served to the authenticated
-holder from T-2h onward. Before that, no valid entry code can exist anywhere —
-not on our servers' output, not on any device. The advance screenshot-resale
-market (which is where the scam you described happens, days before the event)
-is eliminated outright, not merely detected.
+Green/red full-screen result, tier name, ticket code, and the holder's masked
+phone in large type — so staff can ask for the last three digits.
 
-## Key hierarchy
+## Verified (15/15 tests against the real verify module)
 
-```
-TICKET_SIGNING_SEED        server only, never leaves Vercel
-  └─ eventSecret(eventId)  → that event's scanners, at pairing
-       └─ ticketSeed(...)  → the holder only, only after activation
-```
+Ran `components/scanner/verify.ts` in Node against server-generated payloads:
+screenshots from 10 minutes and 24 hours ago both rejected; duplicates, wrong
+event, forged signatures, random QR codes, empty input, and a code borrowed from
+another ticket all rejected; paper tickets and post-sync tickets admitted;
+±45s device clock drift still admits.
 
-A scanner can verify any ticket for its own event, fully offline. It cannot touch
-another event. A holder learns only their own ticket's seed.
+Also verified separately:
+- `@noble/ed25519` v3 verifies Node-generated signatures (2.15 ms per scan)
+- WebCrypto HKDF + HMAC produce **byte-identical** output to Node's, so the
+  browser derives exactly the same rotating codes as the server
 
-## Verified behaviour (26/26 tests passing)
+## Fleet design (built for 50+ devices)
 
-- Screenshot accepted at +45s (drift tolerance), DEAD at +2min, +1h, +1 day
-- Scanner clock ±60s off: still works. ±3min off: rotating check fails, so the
-  scanner falls back to signature-only rather than refusing entry
-- Codes from another event or another ticket: rejected
-- Tampered ticket id / signature / garbage input: rejected
-- Derivation is deterministic across restarts and deploys
-- 1.1 trillion code space (8 chars, 32-symbol alphabet)
+- Tokens are **per event and per gate**, stored hashed, revocable individually
+- Every scan is stamped with device and gate
+- Sync every 10s when there's any signal: pushes queued scans, pulls other gates'
+  check-ins — so the cross-gate blind spot is seconds, not hours
+- Sync is idempotent on a client-generated scan id: a device can retry the same
+  batch after a dropped connection without double-recording
+- Organizer panel shows per-gate device counts, scan counts, last-seen times,
+  and a revoke button per device
+
+## Dispute resolution
+
+On a DUPLICATE the scanner shows **"Override — holder has a live code"**. Ask both
+people to show their ticket refreshing: only the real holder's code moves. The
+override is recorded as `OVERRIDE_ADMITTED` with device, gate, and timestamp, so
+the incident is auditable afterwards.
+
+## Fallbacks (nothing locks out a paying customer)
+
+- **Manual entry**: type `DGS-XXXXXX` and check against the offline manifest —
+  works with a dead customer phone
+- **Bad device clock**: rotating check fails → the ticket still admits on
+  signature + single-use, flagged in the record
+- **Camera unavailable**: manual entry stays available
+- **Service worker**: `/scan` opens with zero connectivity after first load
 
 ## Files
 
-| Path | Purpose |
+| Path | |
 |---|---|
-| `lib/ticket-crypto.ts` | replaces existing — key hierarchy, rotation, activation, payload parsing |
-| `components/TicketEntryCode.tsx` | new — client-side rotating QR, WebCrypto HMAC, offline cache |
-| `app/api/tickets/[id]/entry/route.ts` | new — serves the seed, enforces ownership + activation window |
-| `app/tickets/[id]/page.tsx` | replaces — the two states |
-| `app/t/[id]/page.tsx` | new — public verification page |
-| `app/tickets/page.tsx` | replaces — wallet list shows "Entry unlocks in Xh" |
+| `prisma/schema.prisma` | replaces — adds ScannerDevice, PairingCode, ScanRecord, ScanResult |
+| `package.json` | replaces — adds `@noble/ed25519`, `jsqr` |
+| `lib/ticket-crypto.ts` | replaces — adds `ticketPublicKeyRaw()` |
+| `lib/scanner.ts` | new — pairing, manifest, device auth |
+| `app/api/organizer/scanner/route.ts` | new — mint pairing codes, revoke devices |
+| `app/api/scan/pair/route.ts` | new — redeem a code, hand over the offline toolkit |
+| `app/api/scan/sync/route.ts` | new — idempotent push + cross-gate pull |
+| `app/scan/page.tsx` | new — the scanner PWA |
+| `components/scanner/store.ts` | new — IndexedDB (manifest, queue, cursor) |
+| `components/scanner/verify.ts` | new — offline verification |
+| `components/scanner/ScannerApp.tsx` | new — camera, results, sync, override |
+| `components/scanner/RegisterServiceWorker.tsx` | new |
+| `components/organizer/ScannerPanel.tsx` | new — fleet management |
+| `app/organizer/events/[id]/page.tsx` | replaces — wires the panel in |
+| `public/manifest.webmanifest`, `public/sw.js` | new — installable PWA |
 
-No new dependencies. No new environment variables. No schema change.
+## The acceptance test
 
-Optional: set `NEXT_PUBLIC_SITE_URL` to your domain so pass QRs point at it
-(defaults to the vercel.app URL).
+1. Create an event starting ~1 hour out, buy 3 tickets, pair a phone to "Gate 1"
+2. **Airplane mode on the scanner phone**
+3. Scan ticket 1 → ADMIT. Scan it again → ALREADY USED
+4. Screenshot ticket 2's code, wait 2 minutes, scan the screenshot → EXPIRED CODE.
+   Then scan the live code → ADMIT
+5. Scan a ticket from a different event → WRONG EVENT
+6. Turn connectivity back on → the queue drains and the organizer dashboard
+   check-in count matches exactly what you admitted
 
-## Testing it
+## Note on HTTPS
 
-1. Existing seeded events are weeks out → tickets show **State 1**. Scan the pass
-   QR with your phone camera: you land on the public verification page showing the
-   masked holder phone and the "grants no entry" warning.
-2. To see **State 2**, create an event starting ~1 hour from now in the organizer
-   dashboard, buy a ticket, and open it — live rotating code with countdown.
-3. Screenshot that code, wait two minutes, and compare it to the live one. The
-   captured code is already dead. (The scanner enforces this in 6A-2.)
-4. Airplane mode after loading once: the code keeps rotating from the cached seed.
-
-## Known gap — box office paper tickets
-
-Rotating codes need the app. Box office walk-ups may have no smartphone, so those
-tickets stay static (`DGS1` payload, which the scanner accepts). Still to build:
-an organizer-only print view for a static ticket. Protection for those relies on
-single-use enforcement plus the phone-digit check at the gate.
-
-## Next: 6A-2
-
-Scanner PWA — camera scanning, offline Ed25519 + rotating verification, device
-pairing per gate, local duplicate rejection, and sync-on-reconnect.
+Camera access needs a secure context. Vercel is HTTPS, so `/scan` works on real
+devices; `localhost` also counts as secure if you ever run it locally.

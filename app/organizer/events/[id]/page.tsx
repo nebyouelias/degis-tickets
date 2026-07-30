@@ -5,6 +5,7 @@ import { requireOrganizer, getOwnedEvent } from "@/lib/organizer";
 import { formatEtb, formatEventDateTime } from "@/lib/format";
 import { releaseExpiredOrders } from "@/lib/inventory";
 import { BoxOfficePanel } from "@/components/organizer/BoxOfficePanel";
+import { ScannerPanel } from "@/components/organizer/ScannerPanel";
 import { SalesChart } from "@/components/organizer/SalesChart";
 
 export const dynamic = "force-dynamic";
@@ -24,7 +25,7 @@ export default async function OrganizerEventPage({
   // Release stale holds so the numbers shown are real
   await releaseExpiredOrders(event.id);
 
-  const [tiers, paidOrders, tickets, recentTickets] = await Promise.all([
+  const [tiers, paidOrders, tickets, recentTickets, devices] = await Promise.all([
     db.ticketTier.findMany({
       where: { eventId: event.id },
       orderBy: [{ sortOrder: "asc" }, { priceEtb: "asc" }],
@@ -43,6 +44,11 @@ export default async function OrganizerEventPage({
       include: { tier: true, order: true },
       orderBy: { createdAt: "desc" },
       take: 25,
+    }),
+    db.scannerDevice.findMany({
+      where: { eventId: event.id },
+      include: { _count: { select: { scans: true } } },
+      orderBy: [{ gate: "asc" }, { createdAt: "asc" }],
     }),
   ]);
 
@@ -252,6 +258,26 @@ export default async function OrganizerEventPage({
                 remaining: Math.max(t.capacity - t.sold, 0),
               }))}
             />
+          </div>
+
+          <div className="mt-8 border-t border-ink-700 pt-6">
+            <h2 className="font-bold">Door scanners</h2>
+            <p className="mt-1 text-sm text-ink-300">
+              Pair a phone per gate. Each works fully offline once paired.
+            </p>
+            <div className="mt-4">
+              <ScannerPanel
+                eventId={event.id}
+                devices={devices.map((d) => ({
+                  id: d.id,
+                  gate: d.gate,
+                  label: d.label,
+                  active: d.active,
+                  lastSeenAt: d.lastSeenAt?.toISOString() ?? null,
+                  scanCount: d._count.scans,
+                }))}
+              />
+            </div>
           </div>
         </aside>
       </div>

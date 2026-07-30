@@ -50,6 +50,17 @@ enum OrderChannel {
   BOX_OFFICE
 }
 
+enum ScanResult {
+  ADMITTED
+  DUPLICATE
+  WRONG_EVENT
+  INVALID_SIGNATURE
+  EXPIRED_CODE
+  VOID_TICKET
+  UNKNOWN_TICKET
+  OVERRIDE_ADMITTED
+}
+
 enum TicketStatus {
   VALID
   CHECKED_IN
@@ -118,6 +129,9 @@ model Event {
   tiers       TicketTier[]
   orders      Order[]
   tickets     Ticket[]
+  devices     ScannerDevice[]
+  pairings    PairingCode[]
+  scans       ScanRecord[]
   createdAt   DateTime      @default(now())
 
   @@index([startsAt])
@@ -185,8 +199,55 @@ model Ticket {
   eventId     String
   status      TicketStatus @default(VALID)
   checkedInAt DateTime?
+  scans       ScanRecord[]
   createdAt   DateTime     @default(now())
 
   @@unique([orderId, seq])
   @@index([eventId, status])
+}
+
+model ScannerDevice {
+  id         String       @id @default(cuid())
+  event      Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId    String
+  gate       String
+  label      String?
+  tokenHash  String       @unique
+  active     Boolean      @default(true)
+  lastSeenAt DateTime?
+  scans      ScanRecord[]
+  createdAt  DateTime     @default(now())
+
+  @@index([eventId, active])
+}
+
+model PairingCode {
+  id        String    @id @default(cuid())
+  code      String    @unique
+  event     Event     @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId   String
+  gate      String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([eventId])
+}
+
+model ScanRecord {
+  id           String        @id @default(cuid())
+  clientScanId String        @unique // idempotent sync from offline devices
+  ticket       Ticket?       @relation(fields: [ticketId], references: [id])
+  ticketId     String?
+  event        Event         @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  eventId      String
+  device       ScannerDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  deviceId     String
+  gate         String
+  result       ScanResult
+  scannedAt    DateTime
+  syncedAt     DateTime      @default(now())
+
+  @@index([eventId, scannedAt])
+  @@index([ticketId])
 }
