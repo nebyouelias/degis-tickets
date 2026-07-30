@@ -1,0 +1,56 @@
+DEGIS TICKETS — COMPLETE FILE MANIFEST (52 files)
+Your repo should contain EXACTLY these paths. Anything else at the repo root
+(stray page.tsx, route.ts, organizer.ts, EventForm.tsx, etc.) must be deleted.
+
+  app/account/page.tsx
+  app/api/auth/google/callback/route.ts
+  app/api/auth/google/route.ts
+  app/api/auth/logout/route.ts
+  app/api/auth/request-otp/route.ts
+  app/api/auth/verify-otp/route.ts
+  app/api/checkout/route.ts
+  app/api/health/route.ts
+  app/api/organizer/box-office/route.ts
+  app/api/organizer/events/[id]/attendees/route.ts
+  app/api/organizer/events/route.ts
+  app/api/organizer/setup/route.ts
+  app/api/webhooks/chapa/route.ts
+  app/events/[slug]/page.tsx
+  app/globals.css
+  app/layout.tsx
+  app/orders/[id]/page.tsx
+  app/organizer/events/[id]/page.tsx
+  app/organizer/events/new/page.tsx
+  app/organizer/page.tsx
+  app/organizer/setup/page.tsx
+  app/page.tsx
+  app/signin/page.tsx
+  app/tickets/[id]/page.tsx
+  app/tickets/page.tsx
+  components/EventCard.tsx
+  components/Footer.tsx
+  components/Header.tsx
+  components/SignInForm.tsx
+  components/SignOutButton.tsx
+  components/TicketSelector.tsx
+  components/organizer/BoxOfficePanel.tsx
+  components/organizer/EventForm.tsx
+  components/organizer/SalesChart.tsx
+  components/organizer/SetupForm.tsx
+  lib/auth.ts
+  lib/chapa.ts
+  lib/db.ts
+  lib/fees.ts
+  lib/format.ts
+  lib/inventory.ts
+  lib/issue-tickets.ts
+  lib/organizer.ts
+  lib/phone.ts
+  lib/sms.ts
+  lib/ticket-crypto.ts
+  next.config.mjs
+  package.json
+  postcss.config.mjs
+  prisma/schema.prisma
+  tailwind.config.ts
+  tsconfig.json
