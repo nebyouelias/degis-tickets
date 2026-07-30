@@ -3,11 +3,21 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
+import { entryIsOpen, entryOpensAt } from "@/lib/ticket-crypto";
 import { formatEventDate } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 const GOLD_KINDS = new Set(["VIP", "VVIP", "TABLE"]);
+
+function untilLabel(opensAt: Date): string {
+  const ms = opensAt.getTime() - Date.now();
+  if (ms <= 0) return "ready";
+  const hours = Math.floor(ms / 3_600_000);
+  if (hours >= 24) return `in ${Math.floor(hours / 24)}d`;
+  if (hours >= 1) return `in ${hours}h`;
+  return `in ${Math.max(1, Math.floor(ms / 60_000))}m`;
+}
 
 export default async function TicketsPage() {
   const user = await getCurrentUser();
@@ -15,14 +25,10 @@ export default async function TicketsPage() {
 
   const tickets = await db.ticket.findMany({
     where: { order: { userId: user.id } },
-    include: {
-      tier: true,
-      event: { include: { venue: true } },
-    },
+    include: { tier: true, event: { include: { venue: true } } },
     orderBy: [{ event: { startsAt: "asc" } }, { seq: "asc" }],
   });
 
-  // Group by event so a 4-ticket order reads as one entry
   const groups = new Map<string, typeof tickets>();
   for (const ticket of tickets) {
     const list = groups.get(ticket.eventId) ?? [];
@@ -42,7 +48,7 @@ export default async function TicketsPage() {
           <p className="font-ethiopic text-2xl text-gold">ድ</p>
           <p className="mt-3 font-semibold">No tickets yet</p>
           <p className="mt-1 text-sm text-ink-300">
-            Once you complete a purchase, your QR tickets appear here.
+            Once you complete a purchase, your tickets appear here.
           </p>
           <Link
             href="/"
@@ -55,6 +61,8 @@ export default async function TicketsPage() {
         <div className="mt-8 space-y-8">
           {Array.from(groups.entries()).map(([eventId, group]) => {
             const event = group[0].event;
+            const isOpen = entryIsOpen(event.startsAt);
+            const opensAt = entryOpensAt(event.startsAt);
             return (
               <section key={eventId}>
                 <div className="flex items-center gap-4">
@@ -67,10 +75,23 @@ export default async function TicketsPage() {
                       className="object-cover"
                     />
                   </div>
-                  <div>
-                    <h2 className="font-bold leading-snug">{event.title}</h2>
+                  <div className="min-w-0">
+                    <h2 className="truncate font-bold leading-snug">
+                      {event.title}
+                    </h2>
                     <p className="text-sm text-ink-300">
                       {formatEventDate(event.startsAt)} · {event.venue.name}
+                    </p>
+                    <p className="mt-1 text-xs">
+                      {isOpen ? (
+                        <span className="font-semibold text-gold">
+                          ● Entry codes live
+                        </span>
+                      ) : (
+                        <span className="text-ink-500">
+                          Entry unlocks {untilLabel(opensAt)}
+                        </span>
+                      )}
                     </p>
                   </div>
                 </div>
@@ -106,7 +127,9 @@ export default async function TicketsPage() {
                               ? "Checked in"
                               : ticket.status === "VOID"
                                 ? "Void"
-                                : "View QR →"}
+                                : isOpen
+                                  ? "Show code →"
+                                  : "View →"}
                           </span>
                         </Link>
                       </li>

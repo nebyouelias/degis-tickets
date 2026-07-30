@@ -3,8 +3,14 @@ import { notFound, redirect } from "next/navigation";
 import QRCode from "qrcode";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
-import { buildQrPayload } from "@/lib/ticket-crypto";
+import {
+  ENTRY_OPENS_HOURS_BEFORE,
+  entryIsOpen,
+  entryOpensAt,
+  maskForGate,
+} from "@/lib/ticket-crypto";
 import { formatEventDateTime } from "@/lib/format";
+import { TicketEntryCode } from "@/components/TicketEntryCode";
 
 export const dynamic = "force-dynamic";
 
@@ -30,15 +36,23 @@ export default async function TicketPage({
   if (!ticket || ticket.order.userId !== user.id) notFound();
 
   const gold = GOLD_KINDS.has(ticket.tier.kind);
-  const qrSvg = await QRCode.toString(
-    buildQrPayload(ticket.id, ticket.eventId),
-    {
-      type: "svg",
-      errorCorrectionLevel: "M",
-      margin: 1,
-      color: { dark: "#0B0B0D", light: "#FFFFFF" },
-    }
-  );
+  const isOpen = entryIsOpen(ticket.event.startsAt);
+  const opensAt = entryOpensAt(ticket.event.startsAt);
+
+  // Pre-activation: the QR points at the public verification page.
+  // Deliberately NOT an entry credential — a buyer can scan it to check that a
+  // ticket being offered to them is real and whose it is.
+  const passQr = !isOpen
+    ? await QRCode.toString(
+        `${process.env.NEXT_PUBLIC_SITE_URL ?? "https://degis-tickets.vercel.app"}/t/${ticket.id}`,
+        {
+          type: "svg",
+          errorCorrectionLevel: "M",
+          margin: 1,
+          color: { dark: "#55555F", light: "#1A1A1F" },
+        }
+      )
+    : null;
 
   const statusView = {
     VALID: { label: "Valid", cls: "border-gold/40 bg-gold-faint text-gold" },
@@ -60,9 +74,7 @@ export default async function TicketPage({
         }`}
       >
         {/* Stub header */}
-        <div
-          className={`px-6 py-5 ${gold ? "bg-gold-faint/60" : "bg-ink-800"}`}
-        >
+        <div className={`px-6 py-5 ${gold ? "bg-gold-faint/60" : "bg-ink-800"}`}>
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="font-ethiopic text-lg text-gold">ድግስ</p>
@@ -84,9 +96,7 @@ export default async function TicketPage({
           </p>
           <p className="text-sm text-ink-300">
             {ticket.event.venue.name}
-            {ticket.event.venue.address
-              ? `, ${ticket.event.venue.address}`
-              : ""}
+            {ticket.event.venue.address ? `, ${ticket.event.venue.address}` : ""}
           </p>
         </div>
 
@@ -97,22 +107,56 @@ export default async function TicketPage({
           <div className="absolute left-4 right-4 top-3 border-t border-dashed border-ink-700" />
         </div>
 
-        {/* QR */}
         <div className="px-6 pb-6">
-          <div className="mx-auto w-full max-w-[280px] rounded-2xl bg-white p-4">
-            <div
-              className="[&>svg]:h-auto [&>svg]:w-full"
-              // QR SVG generated server-side from a signed payload
-              dangerouslySetInnerHTML={{ __html: qrSvg }}
-            />
-          </div>
+          {ticket.status === "VOID" ? (
+            <div className="rounded-2xl border border-crimson/40 bg-crimson-muted/40 p-6 text-center">
+              <p className="font-semibold">This ticket was voided</p>
+              <p className="mt-1 text-sm text-ink-300">
+                Contact the organizer if you believe this is a mistake.
+              </p>
+            </div>
+          ) : isOpen ? (
+            /* ---------- STATE 2: live rotating entry code ---------- */
+            <TicketEntryCode ticketId={ticket.id} gold={gold} />
+          ) : (
+            /* ---------- STATE 1: ticket pass, not an entry code ---------- */
+            <div>
+              <div className="rounded-2xl border border-ink-700 bg-ink-800 p-5">
+                <div className="mx-auto w-full max-w-[180px] opacity-60">
+                  <div
+                    className="[&>svg]:h-auto [&>svg]:w-full"
+                    dangerouslySetInnerHTML={{ __html: passQr ?? "" }}
+                  />
+                </div>
+                <p className="mt-3 text-center text-xs font-semibold uppercase tracking-luxe text-ink-300">
+                  Not an entry code
+                </p>
+                <p className="mt-1 text-center text-xs text-ink-500">
+                  Scan to verify this ticket is genuine
+                </p>
+              </div>
 
-          <p className="mt-4 text-center text-2xl font-bold tracking-[0.2em]">
+              <div className="mt-4 rounded-xl border border-gold/30 bg-gold-faint/40 p-4 text-center">
+                <p className="text-xs font-medium uppercase tracking-luxe text-gold">
+                  Entry code unlocks
+                </p>
+                <p className="mt-1 font-semibold">
+                  {formatEventDateTime(opensAt)}
+                </p>
+                <p className="mt-1 text-xs text-ink-300">
+                  {ENTRY_OPENS_HOURS_BEFORE} hours before doors. Open Degis then —
+                  while you have signal — and your code works all night, even
+                  offline.
+                </p>
+              </div>
+            </div>
+          )}
+
+          <p className="mt-5 text-center text-2xl font-bold tracking-[0.2em]">
             {ticket.code}
           </p>
           <p className="mt-1 text-center text-xs text-ink-500">
-            Show this at the gate. Screenshots are accepted, but each ticket
-            admits one person once.
+            Show this code at the gate if your phone battery dies
           </p>
 
           <dl className="mt-6 grid grid-cols-2 gap-3 border-t border-ink-700 pt-5 text-sm">
@@ -131,17 +175,17 @@ export default async function TicketPage({
             </div>
             <div>
               <dt className="text-xs uppercase tracking-luxe text-ink-500">
-                Organizer
+                Held by
               </dt>
-              <dd className="mt-1 font-semibold">
-                {ticket.event.organizer.name}
+              <dd className="mt-1 font-mono font-semibold">
+                {maskForGate(ticket.order.deliveryPhone)}
               </dd>
             </div>
           </dl>
         </div>
       </div>
 
-      <div className="mt-8 flex gap-4">
+      <div className="mt-8">
         <Link
           href="/tickets"
           className="rounded-full border border-ink-700 px-5 py-2 text-sm font-medium text-ink-300 transition-colors hover:text-ink-100"
