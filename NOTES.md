@@ -1,97 +1,107 @@
-# Phase 7 — Image uploads + real SMS
+# Phase 8 — Organizer onboarding, approvals & admin console
 
-## 1. Image uploads (Vercel Blob)
+## ⚠️ Existing events will disappear from the homepage
 
-Organizers upload the poster from their phone instead of pasting a URL — this was
-the single biggest blocker to onboarding a real promoter. JPG/PNG/WebP, 5 MB cap,
-organizer-only, stored per organizer.
+`Event.published` now defaults to **false** and events need `reviewStatus =
+APPROVED` plus an approved organizer to appear publicly. After deploying, go to
+**/admin/events**, filter to DRAFT, and approve your existing test events. This
+is the correct behaviour — nothing sells until a human says so — but it will
+look like your catalog vanished if you're not expecting it.
 
-**Setup:** Vercel → Storage → Create → **Blob** → connect to the project. That
-injects `BLOB_READ_WRITE_TOKEN`. Redeploy afterwards.
-Until it's connected the uploader returns a clear "not configured yet" message
-rather than failing silently.
+## Set this before deploying
 
-## 2. Real SMS
+`ADMIN_PHONES` — comma-separated, e.g. `0911234567,0922334455`. Any of those
+phone numbers becomes an ADMIN automatically on first visit to /admin. There is
+deliberately no public "make me admin" endpoint.
 
-Provider chosen by which env vars exist — switching gateways is configuration,
-not code:
+## 1. Organizer application (replaces the old 2-field setup)
 
-| Priority | Trigger | Provider |
-|---|---|---|
-| 1 | `OTP_DEV_MODE=true` | dev — logs to console, shows codes on screen |
-| 2 | `AFROMESSAGE_TOKEN` | AfroMessage (Ethiopian, Ethio Telecom routes) |
-| 3 | `SMS_WEBHOOK_URL` | generic POST — for whichever aggregator you sign |
-| 4 | `TWILIO_ACCOUNT_SID` + `TWILIO_AUTH_TOKEN` + `TWILIO_FROM` | Twilio (good for testing) |
+`/organizer/apply` — three steps:
+1. **Business** — display name, registered legal name, business type
+   (sole proprietor / PLC / share company / NGO / association / church /
+   government), TIN, city, address, what they run
+2. **Documents** — trade licence (required, PDF or photo), owner ID (optional)
+3. **Contact & payout** — contact person, phone, email, Telegram, website, and
+   the **bank account** (Ethiopian bank list, account name, account number)
 
-**Messages sent**
-- **Payment confirmed** → ticket count, event, link to the wallet
-- **Entry codes live** (T-2h) → "open Degis NOW while you have signal"
-- **Box office sale** → ticket codes by text, when a customer phone was given
+"Sell on Degis" in the header now points here, and the page redirects to sign-in
+first when needed. `/organizer/setup` redirects here so old links keep working.
 
-**Idempotency:** each send is claimed atomically on the order (`paidSmsAt`,
-`entrySmsAt`) before dispatch, so webhook replays, the on-page verify path, and
-overlapping cron runs can never double-text a buyer. A failed send clears the
-claim so a later attempt retries.
+## 2. Approval workflow
 
-**Cost note:** templates are Latin-only on purpose. One Amharic character forces
-the whole SMS to UCS-2 — 70 characters per segment instead of 160, roughly 2.3x
-the cost at volume. Amharic belongs in the app UI, not the SMS bill.
+**Organizer:** PENDING → APPROVED / REJECTED / SUSPENDED
+**Event:** DRAFT → PENDING_REVIEW → APPROVED / REJECTED
 
-## 3. Entry-ready cron
+The rule: **approval gates selling, not building.** A PENDING organizer can
+create events and configure tiers — they stay engaged during review and are
+ready the moment you approve. Publishing puts the event in the review queue.
 
-`vercel.json` schedules `/api/cron/entry-ready` hourly.
+Enforced in three independent places (verified by test):
+- event creation can't set `published` without an approved organizer
+- the public homepage filters on both event and organizer approval
+- **checkout refuses money** unless event AND organizer are both APPROVED
 
-⚠️ **Vercel Hobby only runs cron once per day.** Options:
-- Upgrade to Pro for hourly, or
-- Use a free external cron (cron-job.org) hitting
-  `https://YOUR-DOMAIN/api/cron/entry-ready?key=YOUR_CRON_SECRET` hourly
+Suspending or rejecting an organizer immediately unpublishes all their events.
 
-Set `CRON_SECRET` either way — the route rejects unauthenticated calls when it's set.
+## 3. Admin console
 
-## New environment variables
-
-| Variable | Purpose |
+| Page | |
 |---|---|
-| `BLOB_READ_WRITE_TOKEN` | auto-added by Vercel Blob |
-| `CRON_SECRET` | protects the entry-ready cron |
-| `NEXT_PUBLIC_SITE_URL` | your real domain, used in SMS links |
-| `AFROMESSAGE_TOKEN` / `AFROMESSAGE_SENDER` / `AFROMESSAGE_IDENTIFIER` | Ethiopian SMS |
-| `SMS_WEBHOOK_URL` / `SMS_WEBHOOK_TOKEN` | generic aggregator |
-| `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_FROM` | Twilio |
+| `/admin` | GMV, Degis revenue, 7-day GMV, users/organizers/events/tickets, "needs attention" queue, live events, audit trail |
+| `/admin/organizers` | filter by status; full application detail with licence + ID documents, payout account, their GMV and fees, all their events, decision history |
+| `/admin/events` | filter by review state; approve & publish, reject with a note, or unpublish |
+| `/admin/lookup` | **the support desk** |
 
-Turn **off** `OTP_DEV_MODE` once a real provider is configured, or nothing sends.
+### The lookup page is the one you'll use most
+
+One box takes a phone number, ticket code, order id, Chapa reference, or name.
+Each result shows the order, buyer, whether SMS actually went out, and every
+ticket with its status — plus the fix as a button:
+
+- **Re-check payment with Chapa** — for "I paid but got nothing". Asks Chapa
+  directly and settles a stuck PENDING order.
+- **Resend ticket SMS** — for "I never got the message"
+- **Reissue tickets** — paid order that somehow has no tickets
+- **Void / restore ticket · undo check-in** — for disputes and gate mistakes
+- **Refund & release seats** — voids tickets and returns inventory to sale
+  (move the money in Chapa separately)
+
+Every admin action is written to an **AuditLog** with actor, target, and note.
+
+## 4. Organizer dashboard upgrades
+
+- Nav: Dashboard · Orders · Settings
+- Status banner explaining exactly what's blocked and what unlocks next
+- Event rows show In review / Rejected / Draft / live
+- **`/organizer/orders`** — filterable order table with buyer, tiers, totals,
+  cash vs online, and a note that amounts shown are their earnings
+- **`/organizer/settings`** — business details, payout account (number masked),
+  documents on file, account status
 
 ## Verified
 
 - Full production build: **compiled successfully**
-- Type check clean on all new/changed files
-- 5/5 SMS provider-selection tests: no-provider handled without throwing, dev
-  mode takes priority, `OTP_DEV_MODE="TRUE"` still recognised (the Phase 2 bug
-  can't come back), OTP wrapper throws only when genuinely unconfigured
+- Type check clean on all new components
+- Schema validation: 13 models, 10 enums, all accessors and enum literals valid,
+  all relations have back-references
+- **18/18 gating tests** against the real source: unapproved organizers can't
+  publish or sell, suspended organizers are blocked at checkout even for
+  previously-approved events, admin promotion requires ADMIN_PHONES
 
 ## Files
 
-| Path | |
-|---|---|
-| `prisma/schema.prisma` | replaces — adds `paidSmsAt`, `entrySmsAt` to Order |
-| `package.json` | replaces — adds `@vercel/blob` |
-| `next.config.mjs` | replaces — allows blob image hostnames |
-| `vercel.json` | new — hourly cron |
-| `lib/sms.ts` | replaces — multi-provider |
-| `lib/notify.ts` | new — templates + idempotent sends |
-| `app/api/upload/route.ts` | new |
-| `app/api/cron/entry-ready/route.ts` | new |
-| `app/api/webhooks/chapa/route.ts` | replaces — texts on payment |
-| `app/api/organizer/box-office/route.ts` | replaces — texts walk-up buyers |
-| `components/organizer/ImageUpload.tsx` | new |
-| `components/organizer/EventForm.tsx` | replaces — uses the uploader |
+New: `lib/admin.ts`, `app/organizer/apply/*`, `app/organizer/orders/*`,
+`app/organizer/settings/*`, all of `app/admin/*`, `app/api/admin/*`,
+`app/api/organizer/apply/*`, `components/admin/*`,
+`components/organizer/{ApplyForm,FileUpload,OrganizerNav,StatusBanner}.tsx`
 
-## Still open
+Replaces: `prisma/schema.prisma`, `lib/organizer.ts`, `components/Header.tsx`,
+`components/organizer/ImageUpload.tsx`, `app/page.tsx`, `app/organizer/page.tsx`,
+`app/organizer/setup/page.tsx`, `app/api/checkout/route.ts`,
+`app/api/upload/route.ts`, `app/api/organizer/events/route.ts`
 
-- **Apple/Google Wallet** — needs an Apple Developer membership ($99/yr) plus a
-  Pass Type ID certificate, and a Google Wallet issuer account. Note the design
-  constraint: wallet passes show a *static* barcode and can't rotate every 30s,
-  so the pass should carry event info + `DGS-XXXXXX` + a link back to the app,
-  with entry staying in Degis.
-- **Ticket transfer** — removes the reason to share screenshots at all.
-- **`prisma migrate`** — replace `db push --accept-data-loss` before real orders exist.
+## Worth doing next
+
+- **Event editing** — organizers can create but not yet edit an event
+- **Payout ledger** — what we owe each organizer, marked as settled
+- **Promo codes** — organizers ask for these constantly

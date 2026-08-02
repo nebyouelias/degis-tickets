@@ -22,6 +22,8 @@ export default async function Home({
   const events = await db.event.findMany({
     where: {
       published: true,
+      reviewStatus: "APPROVED",
+      organizer: { is: { status: "APPROVED" } },
       startsAt: { gte: new Date(Date.now() - 12 * 60 * 60 * 1000) },
       ...(q
         ? {

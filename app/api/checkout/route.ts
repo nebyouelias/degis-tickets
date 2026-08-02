@@ -59,9 +59,16 @@ export async function POST(request: Request) {
 
   const event = await db.event.findUnique({
     where: { id: body.eventId },
-    include: { tiers: true },
+    include: { tiers: true, organizer: { select: { status: true } } },
   });
-  if (!event || !event.published || event.startsAt < new Date()) {
+  // Only an approved organizer's approved, published event can take money
+  if (
+    !event ||
+    !event.published ||
+    event.reviewStatus !== "APPROVED" ||
+    event.organizer.status !== "APPROVED" ||
+    event.startsAt < new Date()
+  ) {
     return NextResponse.json({ error: "This event isn't on sale." }, { status: 400 });
   }
 

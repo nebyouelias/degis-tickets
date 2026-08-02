@@ -2,12 +2,6 @@ import { redirect } from "next/navigation";
 import { db } from "@/lib/db";
 import { getCurrentUser } from "@/lib/auth";
 
-/**
- * Organizer access control.
- * Every organizer route resolves the caller's own organizer record — event
- * ownership is verified against it, never taken from the request.
- */
-
 export async function getMyOrganizer() {
   const user = await getCurrentUser();
   if (!user) return { user: null, organizer: null };
@@ -18,14 +12,24 @@ export async function getMyOrganizer() {
   return { user, organizer };
 }
 
+/** Organizer routes: must be signed in and have applied. */
 export async function requireOrganizer() {
   const { user, organizer } = await getMyOrganizer();
-  if (!user) redirect("/signin");
-  if (!organizer) redirect("/organizer/setup");
+  if (!user) redirect("/signin?next=/organizer");
+  if (!organizer) redirect("/organizer/apply");
   return { user, organizer };
 }
 
-/** Load an event only if it belongs to this organizer. Returns null otherwise. */
+/**
+ * Selling requires approval; building does not.
+ * An applicant can create and edit events while under review — they stay engaged,
+ * and they're ready to publish the moment we approve them.
+ */
+export function canSell(status: string): boolean {
+  return status === "APPROVED";
+}
+
+/** Load an event only if it belongs to this organizer. */
 export async function getOwnedEvent(eventId: string, organizerId: string) {
   return db.event.findFirst({
     where: { id: eventId, organizerId },

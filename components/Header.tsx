@@ -4,6 +4,7 @@ import { getCurrentUser } from "@/lib/auth";
 export async function Header() {
   const user = await getCurrentUser();
   const isOrganizer = user?.role === "ORGANIZER" || user?.role === "ADMIN";
+  const isAdmin = user?.role === "ADMIN";
 
   return (
     <header className="sticky top-0 z-50 border-b border-ink-700/60 bg-ink-950/80 backdrop-blur-xl">
@@ -36,11 +37,16 @@ export async function Header() {
             </Link>
           )}
           <Link
-            href={isOrganizer ? "/organizer" : "/organizer/setup"}
+            href={isOrganizer ? "/organizer" : "/organizer/apply"}
             className="transition-colors hover:text-gold"
           >
             {isOrganizer ? "Organizer" : "Sell on Degis"}
           </Link>
+          {isAdmin && (
+            <Link href="/admin" className="transition-colors hover:text-gold">
+              Admin
+            </Link>
+          )}
         </nav>
 
         {user ? (

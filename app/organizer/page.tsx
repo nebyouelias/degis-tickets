@@ -3,6 +3,8 @@ import Image from "next/image";
 import { db } from "@/lib/db";
 import { requireOrganizer } from "@/lib/organizer";
 import { formatEtb, formatEventDate } from "@/lib/format";
+import { OrganizerNav } from "@/components/organizer/OrganizerNav";
+import { StatusBanner } from "@/components/organizer/StatusBanner";
 
 export const dynamic = "force-dynamic";
 
@@ -48,13 +50,15 @@ export default async function OrganizerDashboard() {
           </p>
           <h1 className="mt-1 flex items-center gap-2 text-3xl font-extrabold">
             {organizer.name}
-            {organizer.verified ? (
+            {organizer.status === "APPROVED" ? (
               <span className="rounded-full border border-gold/40 bg-gold-faint px-2.5 py-0.5 text-xs font-semibold text-gold">
                 Verified
               </span>
             ) : (
               <span className="rounded-full border border-ink-700 bg-ink-800 px-2.5 py-0.5 text-xs font-semibold text-ink-300">
-                Pending review
+                {organizer.status === "PENDING"
+                  ? "Under review"
+                  : organizer.status.charAt(0) + organizer.status.slice(1).toLowerCase()}
               </span>
             )}
           </h1>
@@ -66,6 +70,12 @@ export default async function OrganizerDashboard() {
           + Create event
         </Link>
       </div>
+
+      <div className="mt-5">
+        <OrganizerNav active="/organizer" />
+      </div>
+
+      <StatusBanner status={organizer.status} reviewNote={organizer.reviewNote} />
 
       {/* Metrics */}
       <div className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -181,6 +191,7 @@ type EventRowData = {
   startsAt: Date;
   coverImage: string;
   published: boolean;
+  reviewStatus: string;
   venue: { name: string };
   tiers: Array<{ capacity: number; sold: number }>;
   _count: { tickets: number };
@@ -209,11 +220,19 @@ function EventRow({ event }: { event: EventRowData }) {
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-2 truncate font-semibold">
             {event.title}
-            {!event.published && (
+            {event.reviewStatus === "PENDING_REVIEW" ? (
+              <span className="shrink-0 rounded-full border border-gold/40 bg-gold-faint px-2 py-0.5 text-[10px] font-semibold uppercase text-gold">
+                In review
+              </span>
+            ) : event.reviewStatus === "REJECTED" ? (
+              <span className="shrink-0 rounded-full border border-crimson/40 bg-crimson-muted/40 px-2 py-0.5 text-[10px] font-semibold uppercase text-crimson-hover">
+                Rejected
+              </span>
+            ) : !event.published ? (
               <span className="shrink-0 rounded-full border border-ink-700 bg-ink-800 px-2 py-0.5 text-[10px] font-semibold uppercase text-ink-300">
                 Draft
               </span>
-            )}
+            ) : null}
           </p>
           <p className="mt-0.5 text-sm text-ink-300">
             {formatEventDate(event.startsAt)} · {event.venue.name}

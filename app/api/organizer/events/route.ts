@@ -45,6 +45,12 @@ export async function POST(request: Request) {
       { status: 403 }
     );
   }
+  if (organizer.status === "REJECTED" || organizer.status === "SUSPENDED") {
+    return NextResponse.json(
+      { error: "Your organizer account is not active. Contact Degis support." },
+      { status: 403 }
+    );
+  }
 
   let body: {
     title?: string;
@@ -131,7 +137,15 @@ export async function POST(request: Request) {
       category,
       startsAt,
       coverImage: (body.coverImage ?? "").trim() || FALLBACK_COVER,
-      published: body.published !== false,
+      // Approval gates selling. An unapproved organizer can build the event;
+      // requesting publish puts it in the review queue instead of going live.
+      published: organizer.status === "APPROVED" && body.published !== false,
+      reviewStatus:
+        body.published === false
+          ? "DRAFT"
+          : organizer.status === "APPROVED"
+            ? "APPROVED"
+            : "PENDING_REVIEW",
       organizerId: organizer.id,
       venueId: venue.id,
       tiers: { create: tiers },

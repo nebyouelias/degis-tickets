@@ -31,6 +31,31 @@ enum TierKind {
   TABLE
 }
 
+enum OrganizerStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum EventReviewStatus {
+  DRAFT
+  PENDING_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum BusinessType {
+  SOLE_PROPRIETOR
+  PLC
+  SHARE_COMPANY
+  NGO
+  ASSOCIATION
+  CHURCH
+  GOVERNMENT
+  OTHER
+}
+
 enum Role {
   ATTENDEE
   ORGANIZER
@@ -91,17 +116,47 @@ model OtpCode {
 }
 
 model Organizer {
-  id        String   @id @default(cuid())
-  slug      String   @unique
-  name      String
-  phone     String?
-  verified  Boolean  @default(false)
-  owner     User?    @relation(fields: [ownerId], references: [id])
-  ownerId   String?
-  events    Event[]
-  createdAt DateTime @default(now())
+  id                String          @id @default(cuid())
+  slug              String          @unique
+  name              String // trading / display name
+  status            OrganizerStatus @default(PENDING)
+  verified          Boolean         @default(false)
+
+  // Business identity
+  legalName         String?
+  businessType      BusinessType    @default(SOLE_PROPRIETOR)
+  tin               String? // taxpayer identification number
+  licenseNumber     String?
+  licenseUrl        String? // uploaded trade licence document
+  idDocUrl          String? // owner ID / passport
+  city              String          @default("Addis Ababa")
+  address           String?
+  website           String?
+  telegram          String?
+  description       String?
+
+  // Contact
+  phone             String?
+  email             String?
+  contactName       String?
+
+  // Payout details (settlement)
+  bankName          String?
+  bankAccountName   String?
+  bankAccountNumber String?
+
+  // Review trail
+  reviewedAt        DateTime?
+  reviewedById      String?
+  reviewNote        String?
+
+  owner             User?           @relation(fields: [ownerId], references: [id])
+  ownerId           String?
+  events            Event[]
+  createdAt         DateTime        @default(now())
 
   @@index([ownerId])
+  @@index([status])
 }
 
 model Venue {
@@ -121,7 +176,10 @@ model Event {
   category    EventCategory
   startsAt    DateTime
   coverImage  String
-  published   Boolean       @default(true)
+  published    Boolean          @default(false)
+  reviewStatus EventReviewStatus @default(DRAFT)
+  reviewNote   String?
+  reviewedAt   DateTime?
   organizer   Organizer     @relation(fields: [organizerId], references: [id])
   organizerId String
   venue       Venue         @relation(fields: [venueId], references: [id])
@@ -137,6 +195,7 @@ model Event {
   @@index([startsAt])
   @@index([category])
   @@index([organizerId])
+  @@index([reviewStatus])
 }
 
 model TicketTier {
@@ -252,4 +311,18 @@ model ScanRecord {
 
   @@index([eventId, scannedAt])
   @@index([ticketId])
+}
+
+model AuditLog {
+  id         String   @id @default(cuid())
+  actorId    String? // User.id of the admin or organizer who acted
+  actorLabel String // denormalised for readability after account changes
+  action     String // e.g. ORGANIZER_APPROVED, TICKET_VOIDED
+  targetType String // Organizer | Event | Order | Ticket | User
+  targetId   String
+  note       String?
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([createdAt])
 }
