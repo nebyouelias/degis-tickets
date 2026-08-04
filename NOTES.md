@@ -1,107 +1,78 @@
-# Phase 8 — Organizer onboarding, approvals & admin console
+# Phase 9 — Event editing
 
-## ⚠️ Existing events will disappear from the homepage
+Organizers could create an event but never fix it. This closes that.
 
-`Event.published` now defaults to **false** and events need `reviewStatus =
-APPROVED` plus an approved organizer to appear publicly. After deploying, go to
-**/admin/events**, filter to DRAFT, and approve your existing test events. This
-is the correct behaviour — nothing sells until a human says so — but it will
-look like your catalog vanished if you're not expecting it.
+## What organizers can now do
 
-## Set this before deploying
+From the event dashboard → **Edit event**:
+- Title (English + Amharic), description, category, date & time
+- Event poster (re-upload)
+- Venue name, city, address
+- Ticket types: rename, reprice, change quantity, add new types, remove unsold ones
+- Take the event off sale / put it back on sale
+- Delete the event — only while nothing has been sold
 
-`ADMIN_PHONES` — comma-separated, e.g. `0911234567,0922334455`. Any of those
-phone numbers becomes an ADMIN automatically on first visit to /admin. There is
-deliberately no public "make me admin" endpoint.
+## Guardrails (16/16 tests passing)
 
-## 1. Organizer application (replaces the old 2-field setup)
+**Nothing can break an existing buyer's ticket.**
 
-`/organizer/apply` — three steps:
-1. **Business** — display name, registered legal name, business type
-   (sole proprietor / PLC / share company / NGO / association / church /
-   government), TIN, city, address, what they run
-2. **Documents** — trade licence (required, PDF or photo), owner ID (optional)
-3. **Contact & payout** — contact person, phone, email, Telegram, website, and
-   the **bank account** (Ethiopian bank list, account name, account number)
-
-"Sell on Degis" in the header now points here, and the page redirects to sign-in
-first when needed. `/organizer/setup` redirects here so old links keep working.
-
-## 2. Approval workflow
-
-**Organizer:** PENDING → APPROVED / REJECTED / SUSPENDED
-**Event:** DRAFT → PENDING_REVIEW → APPROVED / REJECTED
-
-The rule: **approval gates selling, not building.** A PENDING organizer can
-create events and configure tiers — they stay engaged during review and are
-ready the moment you approve. Publishing puts the event in the review queue.
-
-Enforced in three independent places (verified by test):
-- event creation can't set `published` without an approved organizer
-- the public homepage filters on both event and organizer approval
-- **checkout refuses money** unless event AND organizer are both APPROVED
-
-Suspending or rejecting an organizer immediately unpublishes all their events.
-
-## 3. Admin console
-
-| Page | |
+| Rule | Behaviour |
 |---|---|
-| `/admin` | GMV, Degis revenue, 7-day GMV, users/organizers/events/tickets, "needs attention" queue, live events, audit trail |
-| `/admin/organizers` | filter by status; full application detail with licence + ID documents, payout account, their GMV and fees, all their events, decision history |
-| `/admin/events` | filter by review state; approve & publish, reject with a note, or unpublish |
-| `/admin/lookup` | **the support desk** |
+| Quantity below tickets sold | **Blocked** — "already has 40 sold, quantity can't go below that" |
+| Quantity set exactly to sold | Allowed — this is how you close a tier |
+| Removing a tier with sales | **Blocked**, with the advice to close it instead |
+| Removing a tier with no sales | Allowed |
+| Removing every tier | **Blocked** |
+| Adding a new tier | Allowed |
+| A tier id from another event | **Blocked** |
+| Price change | Allowed — existing orders keep their snapshot price |
+| Delete with tickets issued | **Blocked** — unpublish or ask support to cancel & refund |
 
-### The lookup page is the one you'll use most
+The UI shows the sold count on each tier, sets the quantity field's minimum to it,
+and disables Remove on tiers with sales — so organizers see the constraint before
+they hit the error.
 
-One box takes a phone number, ticket code, order id, Chapa reference, or name.
-Each result shows the order, buyer, whether SMS actually went out, and every
-ticket with its status — plus the fix as a button:
+## Material changes re-trigger review
 
-- **Re-check payment with Chapa** — for "I paid but got nothing". Asks Chapa
-  directly and settles a stuck PENDING order.
-- **Resend ticket SMS** — for "I never got the message"
-- **Reissue tickets** — paid order that somehow has no tickets
-- **Void / restore ticket · undo check-in** — for disputes and gate mistakes
-- **Refund & release seats** — voids tickets and returns inventory to sale
-  (move the money in Chapa separately)
+Changing **title, date or venue** on a live event sets `reviewStatus` back to
+`PENDING_REVIEW` **while leaving it on sale** — buyers mid-purchase aren't
+stranded, but the change lands in the admin queue. The organizer sees a notice
+explaining this. Description, poster and price edits don't trigger review.
 
-Every admin action is written to an **AuditLog** with actor, target, and note.
+Every edit is written to the audit log; material ones are logged as
+`EVENT_MATERIALLY_EDITED` with which fields changed.
 
-## 4. Organizer dashboard upgrades
+## Editing while unapproved
 
-- Nav: Dashboard · Orders · Settings
-- Status banner explaining exactly what's blocked and what unlocks next
-- Event rows show In review / Rejected / Draft / live
-- **`/organizer/orders`** — filterable order table with buyer, tiers, totals,
-  cash vs online, and a note that amounts shown are their earnings
-- **`/organizer/settings`** — business details, payout account (number masked),
-  documents on file, account status
-
-## Verified
-
-- Full production build: **compiled successfully**
-- Type check clean on all new components
-- Schema validation: 13 models, 10 enums, all accessors and enum literals valid,
-  all relations have back-references
-- **18/18 gating tests** against the real source: unapproved organizers can't
-  publish or sell, suspended organizers are blocked at checkout even for
-  previously-approved events, admin promotion requires ADMIN_PHONES
+A PENDING organizer editing an event keeps it unpublished and in review — the same
+rule as creation. Rejected and suspended organizers are blocked from editing at all.
 
 ## Files
 
-New: `lib/admin.ts`, `app/organizer/apply/*`, `app/organizer/orders/*`,
-`app/organizer/settings/*`, all of `app/admin/*`, `app/api/admin/*`,
-`app/api/organizer/apply/*`, `components/admin/*`,
-`components/organizer/{ApplyForm,FileUpload,OrganizerNav,StatusBanner}.tsx`
+| Path | |
+|---|---|
+| `app/api/organizer/events/[id]/route.ts` | new — PATCH (update) and DELETE |
+| `app/organizer/events/[id]/edit/page.tsx` | new — the edit page |
+| `app/organizer/events/[id]/page.tsx` | replaces — adds the Edit event button |
+| `components/organizer/EventEditForm.tsx` | new — form with sold-count guardrails |
 
-Replaces: `prisma/schema.prisma`, `lib/organizer.ts`, `components/Header.tsx`,
-`components/organizer/ImageUpload.tsx`, `app/page.tsx`, `app/organizer/page.tsx`,
-`app/organizer/setup/page.tsx`, `app/api/checkout/route.ts`,
-`app/api/upload/route.ts`, `app/api/organizer/events/route.ts`
+No schema change. No new dependencies. No new environment variables.
 
-## Worth doing next
+## Verified
 
-- **Event editing** — organizers can create but not yet edit an event
-- **Payout ledger** — what we owe each organizer, marked as settled
-- **Promo codes** — organizers ask for these constantly
+- Compiles clean; `EventEditForm` type-checks against the **ES5 target** your
+  tsconfig uses (the setting that caused the `upload/route.ts` build failure)
+- Scanned Phases 7–9 for the same ES5 iteration bug class — only the already-fixed
+  `upload/route.ts` line was affected
+- 16/16 guardrail tests: oversell prevention, tier removal rules, forged tier ids,
+  material-change detection, delete protection
+
+## Test it
+
+1. Open an event with tickets sold → **Edit event**
+2. Try setting a sold tier's quantity below the sold count → clear error
+3. Try removing that tier → Remove is disabled with an explanation
+4. Change the description → saves, stays live, no review flag
+5. Change the date → saves, stays live, notice says Degis will re-check it;
+   confirm it appears in `/admin/events?status=PENDING_REVIEW`
+6. Create a throwaway event with no sales → Delete works

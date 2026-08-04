@@ -102,13 +102,21 @@ export default async function OrganizerEventPage({
             {formatEventDateTime(event.startsAt)} · {event.venue.name}
           </p>
         </div>
-        <Link
-          href={`/events/${event.slug}`}
-          target="_blank"
-          className="rounded-full border border-ink-700 px-4 py-2 text-sm font-medium text-ink-300 transition-colors hover:border-gold/40 hover:text-ink-100"
-        >
-          View public page ↗
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link
+            href={`/organizer/events/${event.id}/edit`}
+            className="rounded-full bg-crimson px-4 py-2 text-sm font-semibold transition-colors hover:bg-crimson-hover"
+          >
+            Edit event
+          </Link>
+          <Link
+            href={`/events/${event.slug}`}
+            target="_blank"
+            className="rounded-full border border-ink-700 px-4 py-2 text-sm font-medium text-ink-300 transition-colors hover:border-gold/40 hover:text-ink-100"
+          >
+            View public page ↗
+          </Link>
+        </div>
       </div>
 
       {/* Metrics */}
