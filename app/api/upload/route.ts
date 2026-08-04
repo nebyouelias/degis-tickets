@@ -45,8 +45,8 @@ export async function POST(request: Request) {
     }
   }
 
-  const allowed = isDocument
-    ? new Set([...IMAGE_TYPES, ...DOC_TYPES])
+const allowed = isDocument
+    ? new Set(["image/jpeg", "image/png", "image/webp", "application/pdf"])
     : IMAGE_TYPES;
 
   if (!allowed.has(file.type)) {
