@@ -1,13 +1,14 @@
 {
   "name": "degis-tickets",
-  "version": "0.7.0",
+  "version": "1.0.0",
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "prisma db push --accept-data-loss && next build",
+    "build": "prisma migrate deploy && next build",
     "postinstall": "prisma generate",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "db:status": "prisma migrate status"
   },
   "dependencies": {
     "@noble/ed25519": "^3.1.0",
