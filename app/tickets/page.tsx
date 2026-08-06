@@ -24,7 +24,15 @@ export default async function TicketsPage() {
   if (!user) redirect("/signin");
 
   const tickets = await db.ticket.findMany({
-    where: { order: { userId: user.id } },
+    // Ownership, not purchase — a transferred ticket leaves the buyer's wallet.
+    // The OR covers tickets issued before ownership tracking existed.
+    where: {
+      status: { not: "VOID" },
+      OR: [
+        { ownerId: user.id },
+        { ownerId: null, order: { is: { userId: user.id } } },
+      ],
+    },
     include: { tier: true, event: { include: { venue: true } } },
     orderBy: [{ event: { startsAt: "asc" } }, { seq: "asc" }],
   });

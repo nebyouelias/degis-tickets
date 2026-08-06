@@ -11,6 +11,7 @@ import {
 } from "@/lib/ticket-crypto";
 import { formatEventDateTime } from "@/lib/format";
 import { TicketEntryCode } from "@/components/TicketEntryCode";
+import { TransferTicket } from "@/components/TransferTicket";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,8 @@ export default async function TicketPage({
     },
   });
 
-  if (!ticket || ticket.order.userId !== user.id) notFound();
+  const ownerId = ticket.ownerId ?? ticket.order.userId;
+  if (!ticket || ownerId !== user.id) notFound();
 
   const gold = GOLD_KINDS.has(ticket.tier.kind);
   const isOpen = entryIsOpen(ticket.event.startsAt);
@@ -184,6 +186,10 @@ export default async function TicketPage({
           </dl>
         </div>
       </div>
+
+      {ticket.status === "VALID" && ticket.event.startsAt > new Date() && (
+        <TransferTicket ticketId={ticket.id} eventTitle={ticket.event.title} />
+      )}
 
       <div className="mt-8">
         <Link

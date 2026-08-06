@@ -27,6 +27,7 @@ export async function issueTicketsForOrder(orderId: string): Promise<number> {
     orderId: string;
     tierId: string;
     eventId: string;
+    ownerId: string;
   }> = [];
 
   let seq = 0;
@@ -38,6 +39,8 @@ export async function issueTicketsForOrder(orderId: string): Promise<number> {
         orderId: order.id,
         tierId: item.tierId,
         eventId: order.eventId,
+        // The buyer owns it until they transfer it away
+        ownerId: order.userId,
       });
       seq++;
     }

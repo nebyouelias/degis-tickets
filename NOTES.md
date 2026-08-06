@@ -1,78 +1,94 @@
-# Phase 9 — Event editing
+# Phase 11 — Ticket transfer
 
-Organizers could create an event but never fix it. This closes that.
+Send a ticket to another phone number. The sender's copy dies, the recipient gets
+a genuinely new ticket. This is the anti-fraud feature: when giving someone a
+ticket is this easy, nobody needs to share a screenshot.
 
-## What organizers can now do
+## ⚠️ This phase includes a migration — upload order matters
 
-From the event dashboard → **Edit event**:
-- Title (English + Amharic), description, category, date & time
-- Event poster (re-upload)
-- Venue name, city, address
-- Ticket types: rename, reprice, change quantity, add new types, remove unsold ones
-- Take the event off sale / put it back on sale
-- Delete the event — only while nothing has been sold
+You are now on `prisma migrate deploy`, so a schema change needs its migration
+file **committed in the same push** as the schema:
 
-## Guardrails (16/16 tests passing)
+```
+prisma/schema.prisma
+prisma/migrations/20260806120000_ticket_transfer/migration.sql
+```
 
-**Nothing can break an existing buyer's ticket.**
+Upload both together with the rest of the files. The build applies the migration
+automatically and the log will say `1 migration applied`.
+
+## The security reason for the design
+
+The rotating entry code is derived from the **ticket id**, and the sender's phone
+has that seed cached locally. If a transfer merely reassigned the same ticket,
+the sender could keep generating valid entry codes offline after giving the
+ticket away — and walk in ahead of the person they sent it to.
+
+So a transfer **voids the original and issues a new ticket**: new id, new code,
+new seed. Verified in tests: after transfer the sender can fetch neither the old
+seed (ticket is void) nor the new one (not their ticket).
+
+## Rules (19/19 tests passing)
 
 | Rule | Behaviour |
 |---|---|
-| Quantity below tickets sold | **Blocked** — "already has 40 sold, quantity can't go below that" |
-| Quantity set exactly to sold | Allowed — this is how you close a tier |
-| Removing a tier with sales | **Blocked**, with the advice to close it instead |
-| Removing a tier with no sales | Allowed |
-| Removing every tier | **Blocked** |
-| Adding a new tier | Allowed |
-| A tier id from another event | **Blocked** |
-| Price change | Allowed — existing orders keep their snapshot price |
-| Delete with tickets issued | **Blocked** — unpublish or ask support to cancel & refund |
+| Not your ticket | 404 — no information leak |
+| Already checked in | Blocked |
+| Already void | Blocked |
+| Event has started | Blocked — transfers close at doors |
+| Your own number | Blocked |
+| More than 3 transfers | Blocked — stops untracked resale chains |
+| Tickets issued before this phase | Fall back to order buyer, so nothing breaks |
 
-The UI shows the sold count on each tier, sets the quantity field's minimum to it,
-and disables Remove on tiers with sales — so organizers see the constraint before
-they hit the error.
+Every transfer is written to a `TicketTransfer` row (from/to ticket, from/to user,
+phone, timestamp), so support can trace a ticket's full history.
 
-## Material changes re-trigger review
+## Ownership model
 
-Changing **title, date or venue** on a live event sets `reviewStatus` back to
-`PENDING_REVIEW` **while leaving it on sale** — buyers mid-purchase aren't
-stranded, but the change lands in the admin queue. The organizer sees a notice
-explaining this. Description, poster and price edits don't trigger review.
+`Ticket.ownerId` is new and authoritative. The migration backfills it from each
+order's buyer — verified against a live PostgreSQL database, existing tickets
+correctly resolved to their purchaser.
 
-Every edit is written to the audit log; material ones are logged as
-`EVENT_MATERIALLY_EDITED` with which fields changed.
+Three places now use ownership rather than "who paid":
+- the wallet list (`/tickets`)
+- the single ticket page
+- the entry-seed API — which is what actually enforces the security property
 
-## Editing while unapproved
+Void tickets are hidden from the wallet, so a sender doesn't see a dead stub.
 
-A PENDING organizer editing an event keeps it unpublished and in review — the same
-rule as creation. Rejected and suspended organizers are blocked from editing at all.
+## Recipient experience
+
+They're texted: *"You have been sent a ticket for [event]. Code: DGS-XXXXXX.
+Sign in with this number to see it."* If they don't have a Degis account, one is
+created against their phone number — so the ticket is waiting when they first
+sign in.
+
+## Known limitation — offline scanners
+
+A transfer made while a gate device is offline won't reach it until that device
+syncs. In that window the old (now void) ticket could still scan as valid at that
+specific gate. Devices sync every 10 seconds whenever they have signal, so the
+window is small — but it's why transfers close once the event starts.
 
 ## Files
 
 | Path | |
 |---|---|
-| `app/api/organizer/events/[id]/route.ts` | new — PATCH (update) and DELETE |
-| `app/organizer/events/[id]/edit/page.tsx` | new — the edit page |
-| `app/organizer/events/[id]/page.tsx` | replaces — adds the Edit event button |
-| `components/organizer/EventEditForm.tsx` | new — form with sold-count guardrails |
+| `prisma/schema.prisma` | replaces — `Ticket.ownerId`, `TicketTransfer` model |
+| `prisma/migrations/20260806120000_ticket_transfer/migration.sql` | new |
+| `lib/issue-tickets.ts` | replaces — stamps `ownerId` at issuance |
+| `app/api/tickets/[id]/transfer/route.ts` | new |
+| `app/api/tickets/[id]/entry/route.ts` | replaces — ownership check |
+| `app/tickets/page.tsx` | replaces — wallet by ownership |
+| `app/tickets/[id]/page.tsx` | replaces — ownership + transfer UI |
+| `components/TransferTicket.tsx` | new |
 
-No schema change. No new dependencies. No new environment variables.
-
-## Verified
-
-- Compiles clean; `EventEditForm` type-checks against the **ES5 target** your
-  tsconfig uses (the setting that caused the `upload/route.ts` build failure)
-- Scanned Phases 7–9 for the same ES5 iteration bug class — only the already-fixed
-  `upload/route.ts` line was affected
-- 16/16 guardrail tests: oversell prevention, tier removal rules, forged tier ids,
-  material-change detection, delete protection
+No new environment variables.
 
 ## Test it
 
-1. Open an event with tickets sold → **Edit event**
-2. Try setting a sold tier's quantity below the sold count → clear error
-3. Try removing that tier → Remove is disabled with an explanation
-4. Change the description → saves, stays live, no review flag
-5. Change the date → saves, stays live, notice says Degis will re-check it;
-   confirm it appears in `/admin/events?status=PENDING_REVIEW`
-6. Create a throwaway event with no sales → Delete works
+1. Buy a ticket, open it, tap **Send this ticket to someone**
+2. Enter a second phone number you control, confirm
+3. Reload your wallet — the ticket is gone
+4. Sign in with the other number — it's there, with a different `DGS-` code
+5. Try to reopen the old ticket URL as the sender → 404

@@ -33,7 +33,10 @@ export async function GET(
     include: { event: true, order: true },
   });
 
-  if (!ticket || ticket.order.userId !== user.id) {
+  // Only the current owner may fetch the rotating seed. After a transfer the
+  // sender fails this check, so their cached code stops working.
+  const ownerId = ticket?.ownerId ?? ticket?.order.userId;
+  if (!ticket || ownerId !== user.id) {
     return NextResponse.json({ error: "Ticket not found." }, { status: 404 });
   }
 

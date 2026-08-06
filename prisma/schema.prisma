@@ -100,6 +100,7 @@ model User {
   role       Role        @default(ATTENDEE)
   orders     Order[]
   organizers Organizer[]
+  tickets    Ticket[]    @relation("TicketOwner")
   createdAt  DateTime    @default(now())
 }
 
@@ -254,6 +255,8 @@ model Ticket {
   seq         Int
   order       Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
   orderId     String
+  owner       User?        @relation("TicketOwner", fields: [ownerId], references: [id])
+  ownerId     String?
   tier        TicketTier   @relation(fields: [tierId], references: [id])
   tierId      String
   event       Event        @relation(fields: [eventId], references: [id])
@@ -261,10 +264,13 @@ model Ticket {
   status      TicketStatus @default(VALID)
   checkedInAt DateTime?
   scans       ScanRecord[]
+  transfersIn  TicketTransfer[] @relation("TransferTo")
+  transfersOut TicketTransfer[] @relation("TransferFrom")
   createdAt   DateTime     @default(now())
 
   @@unique([orderId, seq])
   @@index([eventId, status])
+  @@index([ownerId])
 }
 
 model ScannerDevice {
@@ -325,4 +331,19 @@ model AuditLog {
 
   @@index([targetType, targetId])
   @@index([createdAt])
+}
+
+model TicketTransfer {
+  id           String   @id @default(cuid())
+  fromTicket   Ticket   @relation("TransferFrom", fields: [fromTicketId], references: [id], onDelete: Cascade)
+  fromTicketId String
+  toTicket     Ticket   @relation("TransferTo", fields: [toTicketId], references: [id], onDelete: Cascade)
+  toTicketId   String
+  fromUserId   String
+  toUserId     String
+  toPhone      String
+  createdAt    DateTime @default(now())
+
+  @@index([fromTicketId])
+  @@index([toTicketId])
 }
