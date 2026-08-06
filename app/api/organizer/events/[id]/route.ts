@@ -205,7 +205,8 @@ export async function PATCH(
       }
     }
 
-    for (const [i, t] of incoming.entries()) {
+    for (let i = 0; i < incoming.length; i++) {
+      const t = incoming[i];
       const kind = (TIER_KINDS.includes(t.kind as (typeof TIER_KINDS)[number])
         ? t.kind
         : "GA") as TierKind;
