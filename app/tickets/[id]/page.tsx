@@ -33,9 +33,9 @@ export default async function TicketPage({
       order: true,
     },
   });
-
+if (!ticket) notFound();
   const ownerId = ticket.ownerId ?? ticket.order.userId;
-  if (!ticket || ownerId !== user.id) notFound();
+  if (ownerId !== user.id) notFound();
 
   const gold = GOLD_KINDS.has(ticket.tier.kind);
   const isOpen = entryIsOpen(ticket.event.startsAt);
