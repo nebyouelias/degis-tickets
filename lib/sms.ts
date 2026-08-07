@@ -5,9 +5,10 @@
  * testing to an Ethiopian aggregator is configuration, not a code change:
  *
  *   1. OTP_DEV_MODE=true      → nothing sent; codes shown on screen (dev only)
- *   2. AFROMESSAGE_TOKEN      → AfroMessage (Ethiopian, Ethio Telecom routes)
- *   3. SMS_WEBHOOK_URL        → generic POST adapter for any other aggregator
- *   4. TWILIO_*               → Twilio (international; good for testing)
+ *   2. SMSETHIOPIA_API_KEY    → SMSEthiopia (direct Ethio Telecom, INSA licensed)
+ *   3. AFROMESSAGE_TOKEN      → AfroMessage (Ethiopian, Ethio Telecom routes)
+ *   4. SMS_WEBHOOK_URL        → generic POST adapter for any other aggregator
+ *   5. TWILIO_*               → Twilio (international; good for testing)
  *
  * Cost note that matters in Ethiopia: GSM-7 (Latin) fits 160 characters per
  * segment, but any Amharic character switches the whole message to UCS-2 at 70
@@ -33,6 +34,38 @@ function toE164(phone: string): string {
   if (/^0[79]\d{8}$/.test(cleaned)) return `+251${cleaned.slice(1)}`;
   if (/^251\d{9}$/.test(cleaned)) return `+${cleaned}`;
   return cleaned;
+}
+
+/**
+ * SMSEthiopia. Their API wants the MSISDN WITHOUT a leading "+"
+ * (e.g. 251911234567), so we strip it here rather than in the normalizer —
+ * every other provider expects E.164.
+ */
+async function sendViaSmsEthiopia(to: string, body: string): Promise<SmsResult> {
+  const msisdn = toE164(to).replace(/^\+/, "");
+
+  const res = await fetch("https://smsethiopia.com/api/sms/send", {
+    method: "POST",
+    headers: {
+      KEY: process.env.SMSETHIOPIA_API_KEY!,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ msisdn, text: body }),
+  });
+
+  let detail = "";
+  try {
+    detail = JSON.stringify(await res.json());
+  } catch {
+    detail = `HTTP ${res.status}`;
+  }
+
+  return {
+    delivered: res.ok,
+    devMode: false,
+    provider: "smsethiopia",
+    ...(res.ok ? {} : { error: `SMSEthiopia rejected the message: ${detail}` }),
+  };
 }
 
 async function sendViaAfroMessage(to: string, body: string): Promise<SmsResult> {
@@ -110,6 +143,7 @@ export async function sendSms(to: string, body: string): Promise<SmsResult> {
       console.log(`[SMS dev-mode] to ${to}: ${body}`);
       return { delivered: false, devMode: true, provider: "dev" };
     }
+    if (process.env.SMSETHIOPIA_API_KEY) return await sendViaSmsEthiopia(to, body);
     if (process.env.AFROMESSAGE_TOKEN) return await sendViaAfroMessage(to, body);
     if (process.env.SMS_WEBHOOK_URL) return await sendViaWebhook(to, body);
     if (
